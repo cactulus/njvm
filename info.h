@@ -1,3 +1,8 @@
+struct UTF8 {
+	u16 length;
+	u8 *bytes;
+};
+
 struct CP_Info {
 	u8 tag;
 
@@ -18,10 +23,7 @@ struct CP_Info {
 		};
 
 		/* Utf-8 */
-		struct {
-			u16 length;
-			u8 *bytes;
-		};
+		UTF8 utf8;
 	};
 };
 

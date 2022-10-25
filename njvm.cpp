@@ -1,14 +1,26 @@
-bool utf8_match(CP_Info cp_info, const char *str);
-void utf8_print(CP_Info cp_info);
+bool utf8_match(UTF8 utf8, const char *str);
+void utf8_print(UTF8 utf8);
 
 struct Value {
 	enum Value_Type {
 		INT,
-		STRING
+		STRING,
+		TYPE,
 	};
 
 	Value_Type type;
+
+	union {
+		UTF8 utf8;
+
+		struct {
+			UTF8 clazz;
+			UTF8 member;
+		};
+	};
 };
+
+bool utf8_match(Value value, const char *str);
 
 struct Stack {
 	Value *stack = 0;
@@ -62,7 +74,10 @@ struct NJVM {
 					u8 const_index = fetch_u8();
 					CP_Info cnst = get_cp_info(const_index + 1);
 
-					utf8_print(cnst);
+					Value constant;
+					constant.type = Value::STRING;
+					constant.utf8 = cnst.utf8;
+					stack.push(constant);
 				} break;
 				case OP_GETSTATIC: {
 					u16 field_index = fetch_u16();
@@ -71,8 +86,12 @@ struct NJVM {
 					CP_Info class_name = get_class_name(field_ref.class_index);
 					CP_Info member_name = get_member_name(field_ref.name_and_type_index);
 
-					utf8_print(class_name);
-					utf8_print(member_name);
+					Value type;
+					type.type = Value::TYPE;
+					type.clazz = class_name.utf8;
+					type.member = member_name.utf8;
+
+					stack.push(type);
 				} break;
 				case OP_INVOKEVIRTUAL: {
 					u16 method_index = fetch_u16();
@@ -81,8 +100,15 @@ struct NJVM {
 					CP_Info class_name = get_class_name(method_ref.class_index);
 					CP_Info member_name = get_member_name(method_ref.name_and_type_index);
 
-					utf8_print(class_name);
-					utf8_print(member_name);
+					Value *val = stack.pop();
+					Value *field = stack.pop();
+
+					if (utf8_match(field->clazz, "java/lang/System") && utf8_match(field->member, "out") &&
+							utf8_match(class_name.utf8, "java/io/PrintStream") && utf8_match(member_name.utf8, "println")) {
+
+						/* for now sure, that it is a string */
+						utf8_print(val->utf8);
+					}
 				} break;
 				case OP_RETURN: {
 				} break;
@@ -108,7 +134,7 @@ struct NJVM {
 			Method_Info *m = &cf->methods[i];
 			
 			CP_Info name = get_cp_info(m->name_index);
-			if (utf8_match(name, mname)) {
+			if (utf8_match(name.utf8, mname)) {
 				return m;
 			}
 		}
@@ -124,7 +150,7 @@ struct NJVM {
 			Attribute_Info *a = &m->attributes[i];
 			CP_Info name = get_cp_info(a->attribute_name_index);
 
-			if (utf8_match(name, "Code")) {
+			if (utf8_match(name.utf8, "Code")) {
 				Reader r(a->info, a->attribute_length);	
 				info.max_stack = r.read_u16();
 				info.max_locals = r.read_u16();
@@ -156,11 +182,11 @@ struct NJVM {
 	
 };
 
-bool utf8_match(CP_Info cp_info, const char *str) {
-	if (strlen(str) != cp_info.length) return false;
+bool utf8_match(UTF8 utf8, const char *str) {
+	if (strlen(str) != utf8.length) return false;
 
-	for (u16 k = 0; k < cp_info.length; ++k) {
-		if (str[k] != cp_info.bytes[k]) {
+	for (u16 k = 0; k < utf8.length; ++k) {
+		if (str[k] != utf8.bytes[k]) {
 			return false;
 		}
 	}
@@ -168,7 +194,7 @@ bool utf8_match(CP_Info cp_info, const char *str) {
 	return true;
 }
 
-void utf8_print(CP_Info cp_info) {
-	printf("%.*s\n", cp_info.length, cp_info.bytes);
+void utf8_print(UTF8 utf8) {
+	printf("%.*s\n", utf8.length, utf8.bytes);
 }
 

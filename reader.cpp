@@ -76,11 +76,14 @@ CP_Info read_cp_info(Reader *r) {
 			info.descriptor_index = r->read_u16();
 		} break;
 		case CONSTANT_Utf8: {
-			info.length = r->read_u16();
-			info.bytes = (u8 *) malloc(info.length);
-			for (u16 i = 0; i < info.length; ++i) {
-				info.bytes[i] = r->read_u8();
+			UTF8 utf8;
+
+			utf8.length = r->read_u16();
+			utf8.bytes = (u8 *) malloc(utf8.length);
+			for (u16 i = 0; i < utf8.length; ++i) {
+				utf8.bytes[i] = r->read_u8();
 			}
+			info.utf8 = utf8;
 		} break;
 		case CONSTANT_String: {
 			info.string_index = r->read_u16();
