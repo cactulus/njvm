@@ -1,4 +1,5 @@
 bool utf8_match(UTF8 utf8, const char *str);
+bool utf8_match(UTF8 l, UTF8 r);
 void utf8_print(UTF8 utf8);
 
 struct Value {
@@ -12,6 +13,7 @@ struct Value {
 
 	union {
 		UTF8 utf8;
+		long int int_value;
 
 		struct {
 			UTF8 clazz;
@@ -21,37 +23,25 @@ struct Value {
 };
 
 bool utf8_match(Value value, const char *str);
+void value_print(Value value);
 
-struct Stack {
-	Value *stack = 0;
-	u16 size;
-	u16 pos;
+Value make_int(long int val);
+Value make_string(UTF8 utf8);
+Value make_type(UTF8 clazz, UTF8 member);
 
-	void setup(u16 max_size) {
-		if (stack) {
-			free(stack);
-		}
-
-		stack = (Value *) malloc(sizeof(Value) * max_size);
-		size = max_size;
-		pos = 0;
-	}
-
-	void push(Value val) {
-		assert(pos < size && "Stackoverflow");
-		stack[pos++] = val;
-	}
-
-	Value *pop() {
-		assert(pos > 0);
-		return &stack[--pos];
-	}
+struct Call_Frame {
+	Value *stack;
+	Value *locals;
+	u8 *ip;
+	u8 sp;
 };
 
 struct NJVM {
 	Class_File *cf;
-	Stack stack;
+	Value *stack;
+	Value *locals;
 	u8 *ip;
+	u8 sp;
 
 	NJVM(Class_File *cf) {
 		this->cf = cf;
@@ -59,64 +49,163 @@ struct NJVM {
 
 	void run() {
 		Method_Info *main_method = find_method("main");
-		execute_method(main_method);
+		call_main(main_method);
 	}
 
-	void execute_method(Method_Info *m) {
+	void call_main(Method_Info *m) {
 		Code_Info ci = find_code(m);	
-		stack.setup(ci.max_stack);
+
+		stack = (Value *) malloc(ci.max_stack * sizeof(Value));
+		locals = (Value *) malloc(ci.max_locals * sizeof(Value));
 		ip = ci.code;
+		sp = 0;
 
-		while (ip < ci.code + ci.code_length) {
-			u8 opcode = fetch_u8();
-			switch (opcode) {
-				case OP_LDC: {
-					u8 const_index = fetch_u8();
-					CP_Info cnst = get_cp_info(const_index + 1);
-
-					Value constant;
-					constant.type = Value::STRING;
-					constant.utf8 = cnst.utf8;
-					stack.push(constant);
-				} break;
-				case OP_GETSTATIC: {
-					u16 field_index = fetch_u16();
-
-					CP_Info field_ref = get_cp_info(field_index);
-					CP_Info class_name = get_class_name(field_ref.class_index);
-					CP_Info member_name = get_member_name(field_ref.name_and_type_index);
-
-					Value type;
-					type.type = Value::TYPE;
-					type.clazz = class_name.utf8;
-					type.member = member_name.utf8;
-
-					stack.push(type);
-				} break;
-				case OP_INVOKEVIRTUAL: {
-					u16 method_index = fetch_u16();
-
-					CP_Info method_ref = get_cp_info(method_index);
-					CP_Info class_name = get_class_name(method_ref.class_index);
-					CP_Info member_name = get_member_name(method_ref.name_and_type_index);
-
-					Value *val = stack.pop();
-					Value *field = stack.pop();
-
-					if (utf8_match(field->clazz, "java/lang/System") && utf8_match(field->member, "out") &&
-							utf8_match(class_name.utf8, "java/io/PrintStream") && utf8_match(member_name.utf8, "println")) {
-
-						/* for now sure, that it is a string */
-						utf8_print(val->utf8);
-					}
-				} break;
-				case OP_RETURN: {
-				} break;
-				default: {
-					printf("Unhandled opcode: %02x\n", opcode);
-				};
-			}
+		bool sbreak = false;
+		while (!sbreak) {
+			sbreak = execute();
 		}
+	}
+
+	void call(Method_Info *m) {
+		Code_Info ci = find_code(m);	
+
+		Call_Frame frame = save_frame();
+
+		stack = (Value *) malloc(ci.max_stack * sizeof(Value));
+		locals = (Value *) malloc(ci.max_locals * sizeof(Value));
+		ip = ci.code;
+		sp = 0;
+
+		// parameters
+		u8 par_count = 2;
+		for (int k = 0; k < par_count; ++k) {
+			istore(k, frame.stack[--frame.sp]);
+		}
+
+		bool sbreak = false;
+		while (!sbreak) {
+			sbreak = execute();
+		}
+
+		// return value
+		frame.stack[frame.sp++] = pop();
+
+		restore_frame(frame);
+	}
+
+	bool execute() {
+		u8 opcode = fetch_u8();
+		switch (opcode) {
+			case OP_ICONST_0: case OP_ICONST_1:
+			case OP_ICONST_2: case OP_ICONST_3:
+			case OP_ICONST_4: case OP_ICONST_5: {
+				push(make_int(opcode - 3));
+			} break;
+			case OP_BIPUSH: {
+				push(make_int(fetch_u8()));
+			} break;
+			case OP_SIPUSH: {
+				push(make_int(fetch_u16()));
+			} break;
+			case OP_LDC: {
+				u8 const_index = fetch_u8();
+				CP_Info cnst = get_cp_info(const_index + 1);
+
+				push(make_string(cnst.utf8));
+			} break;
+			case OP_ILOAD: {
+				iload(fetch_u8());
+			} break;
+			case OP_ILOAD_0: case OP_ILOAD_1:
+			case OP_ILOAD_2: case OP_ILOAD_3: {
+				iload(opcode - 0x1a);
+			} break;
+			case OP_ISTORE: {
+				istore(fetch_u8());
+			} break;
+			case OP_ISTORE_0: case OP_ISTORE_1:
+			case OP_ISTORE_2: case OP_ISTORE_3: {
+				istore(opcode - 0x3b);
+			} break;
+			case OP_IADD: {
+				long int l = pop().int_value;
+				long int r = pop().int_value;
+
+				push(make_int(l + r));
+			} break;
+			case OP_IRETURN:
+			case OP_RETURN: {
+				return true;
+			} break;
+			case OP_GETSTATIC: {
+				u16 field_index = fetch_u16();
+
+				CP_Info field_ref = get_cp_info(field_index);
+				CP_Info class_name = get_class_name(field_ref.class_index);
+				CP_Info member_name = get_member_name(field_ref.name_and_type_index);
+
+				Value type = make_type(class_name.utf8, member_name.utf8);
+				push(type);
+			} break;
+			case OP_INVOKEVIRTUAL: {
+				u16 method_index = fetch_u16();
+
+				CP_Info method_ref = get_cp_info(method_index);
+				CP_Info class_name = get_class_name(method_ref.class_index);
+				CP_Info member_name = get_member_name(method_ref.name_and_type_index);
+
+				Value val = pop();
+				Value field = pop();
+
+				if (utf8_match(field.clazz, "java/lang/System") && utf8_match(field.member, "out") &&
+						utf8_match(class_name.utf8, "java/io/PrintStream") && utf8_match(member_name.utf8, "println")) {
+
+					value_print(val);
+				}
+			} break;
+			case OP_INVOKESTATIC: {
+				u16 method_index = fetch_u16();
+
+				CP_Info method_ref = get_cp_info(method_index);
+				CP_Info member_name = get_member_name(method_ref.name_and_type_index);
+				
+				for (u16 i = 0; i < cf->methods_count; ++i) {
+					Method_Info *mi = &cf->methods[i];
+					CP_Info name = get_cp_info(mi->name_index);
+
+					/* check class later */
+					if (utf8_match(member_name.utf8, name.utf8)) {
+						call(mi);
+						break;
+					}
+				}
+			} break;
+			default: {
+				printf("Unhandled opcode: %02x\n", opcode);
+			};
+		}
+
+		return false;
+	}
+
+	void push(Value val) {
+		stack[sp++] = val;
+	}
+
+	Value pop() {
+		return stack[--sp];
+	}
+
+	void istore(u8 index, Value value) {
+		locals[index] = value;
+	}
+
+	void istore(u8 index) {
+		istore(index, pop());
+	}
+
+	void iload(u8 index) {
+		push(locals[index]);
 	}
 
 	u8 fetch_u8() {
@@ -127,6 +216,27 @@ struct NJVM {
 		u16 f = fetch_u8();
 		u16 s = fetch_u8();
 		return (f << 8) | s;
+	}
+
+	Call_Frame save_frame() {
+		Call_Frame frame;
+
+		frame.stack = stack;
+		frame.locals = locals;
+		frame.ip = ip;
+		frame.sp = sp;
+
+		return frame;
+	}
+
+	void restore_frame(Call_Frame frame) {
+		delete[] stack;
+		delete[] locals;
+
+		stack = frame.stack;
+		locals = frame.locals;
+		ip = frame.ip;
+		sp = frame.sp;
 	}
 
 	Method_Info *find_method(const char *mname) {
@@ -194,7 +304,48 @@ bool utf8_match(UTF8 utf8, const char *str) {
 	return true;
 }
 
+bool utf8_match(UTF8 l, UTF8 r) {
+	if (l.length != r.length) return false;
+
+	for (u16 k = 0; k < l.length; ++k) {
+		if (l.bytes[k] != r.bytes[k]) {
+			return false;
+		}
+	}
+
+	return true;
+}
+
 void utf8_print(UTF8 utf8) {
 	printf("%.*s\n", utf8.length, utf8.bytes);
 }
 
+void value_print(Value value) {
+	switch (value.type) {
+		case Value::STRING: utf8_print(value.utf8); break;
+		case Value::INT: printf("%ld\n", value.int_value); break;
+		default: printf("Havent implenented print for type %d\n", value.type); break;
+	}
+}
+
+Value make_int(long int val) {
+	Value v;
+	v.type = Value::INT;
+	v.int_value = val;	
+	return v;
+}
+
+Value make_string(UTF8 utf8) {
+	Value v;
+	v.type = Value::STRING;
+	v.utf8 = utf8;
+	return v;
+}
+
+Value make_type(UTF8 clazz, UTF8 member) {
+	Value v;
+	v.type = Value::TYPE;
+	v.clazz = clazz;
+	v.member = member;
+	return v;
+}

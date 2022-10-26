@@ -44,9 +44,30 @@ enum {
 };
 
 enum {
+	OP_ICONST_0 = 0x3,
+	OP_ICONST_1 = 0x4,
+	OP_ICONST_2 = 0x5,
+	OP_ICONST_3 = 0x6,
+	OP_ICONST_4 = 0x7,
+	OP_ICONST_5 = 0x8,
+	OP_BIPUSH = 0x10,
+	OP_SIPUSH = 0x11,
 	OP_LDC = 0x12,
+	OP_ILOAD = 0x15,
+	OP_ILOAD_0 = 0x1a,
+	OP_ILOAD_1 = 0x1b,
+	OP_ILOAD_2 = 0x1c,
+	OP_ILOAD_3 = 0x1d,
+	OP_ISTORE = 0x36,
+	OP_ISTORE_0 = 0x3b,
+	OP_ISTORE_1 = 0x3c,
+	OP_ISTORE_2 = 0x3d,
+	OP_ISTORE_3 = 0x3e,
+	OP_IADD = 0x60,
+	OP_IRETURN = 0xac,
 	OP_RETURN = 0xb1,
 	OP_GETSTATIC = 0xb2,
 	OP_INVOKEVIRTUAL = 0xb6,
+	OP_INVOKESTATIC = 0xb8,
 };
 
