@@ -79,7 +79,7 @@ struct NJVM {
 		// parameters
 		u8 par_count = 2;
 		for (int k = 0; k < par_count; ++k) {
-			istore(k, frame.stack[--frame.sp]);
+			store(k, frame.stack[--frame.sp]);
 		}
 
 		bool sbreak = false;
@@ -114,18 +114,18 @@ struct NJVM {
 				push(make_string(cnst.utf8));
 			} break;
 			case OP_ILOAD: {
-				iload(fetch_u8());
+				load(fetch_u8());
 			} break;
 			case OP_ILOAD_0: case OP_ILOAD_1:
 			case OP_ILOAD_2: case OP_ILOAD_3: {
-				iload(opcode - 0x1a);
+				load(opcode - 0x1a);
 			} break;
 			case OP_ISTORE: {
-				istore(fetch_u8());
+				store(fetch_u8());
 			} break;
 			case OP_ISTORE_0: case OP_ISTORE_1:
 			case OP_ISTORE_2: case OP_ISTORE_3: {
-				istore(opcode - 0x3b);
+				store(opcode - 0x3b);
 			} break;
 			case OP_IADD: {
 				long int l = pop().int_value;
@@ -196,15 +196,15 @@ struct NJVM {
 		return stack[--sp];
 	}
 
-	void istore(u8 index, Value value) {
+	void store(u8 index, Value value) {
 		locals[index] = value;
 	}
 
-	void istore(u8 index) {
-		istore(index, pop());
+	void store(u8 index) {
+		store(index, pop());
 	}
 
-	void iload(u8 index) {
+	void load(u8 index) {
 		push(locals[index]);
 	}
 
