@@ -45,6 +45,7 @@ Value make_type(UTF8 clazz, UTF8 member);
 Value make_object(UTF8 utf8);
 
 struct Call_Frame {
+	Method_Info *current_method;
 	Value *stack;
 	Value *locals;
 	u8 *ip;
@@ -52,6 +53,7 @@ struct Call_Frame {
 };
 
 struct NJVM {
+	Method_Info *current_method;
 	Class_File *cf;
 	Value *stack;
 	Value *locals;
@@ -69,6 +71,7 @@ struct NJVM {
 
 	void call_main(Method_Info *m) {
 		Code_Info ci = find_code(m);	
+		current_method = m;
 
 		stack = (Value *) malloc(ci.max_stack * sizeof(Value));
 		locals = (Value *) malloc(ci.max_locals * sizeof(Value));
@@ -83,7 +86,7 @@ struct NJVM {
 
 	void call(Method_Info *m, bool on_object) {
 		Code_Info ci = find_code(m);
-		debug_info(m);
+		current_method = m;
 
 		Call_Frame frame = save_frame();
 
@@ -95,7 +98,7 @@ struct NJVM {
 		FunctionType ft = parse_function_type(get_cp_info(m->descriptor_index).utf8);
 		u8 par_count = ft.parameter_count;
 
-		for (int k = 0; k < par_count; ++k) {
+		for (int k = 1; k <= par_count; ++k) {
 			store(k, frame.stack[--frame.sp]);
 		}
 
@@ -282,7 +285,8 @@ struct NJVM {
 	}
 
 	void store(u8 index, Value value) {
-		locals[index] = value;
+		assert(index > 0);
+		locals[index - 1] = value;
 	}
 
 	void store(u8 index) {
@@ -290,7 +294,8 @@ struct NJVM {
 	}
 
 	void load(u8 index) {
-		push(locals[index]);
+		assert(index > 0);
+		push(locals[index - 1]);
 	}
 
 	u8 fetch_u8() {
@@ -305,7 +310,8 @@ struct NJVM {
 
 	Call_Frame save_frame() {
 		Call_Frame frame;
-
+		
+		frame.current_method = current_method;
 		frame.stack = stack;
 		frame.locals = locals;
 		frame.ip = ip;
@@ -322,6 +328,7 @@ struct NJVM {
 		locals = frame.locals;
 		ip = frame.ip;
 		sp = frame.sp;
+		current_method = frame.current_method;
 	}
 
 	Method_Info *find_method(const char *mname) {
@@ -375,10 +382,10 @@ struct NJVM {
 		return get_cp_info(ci.name_index);
 	}
 	
-	void debug_info(Method_Info *m) {
+	void debug_info() {
 		printf("------------- DEBUG INFO -------------\n");
 		printf("Current function: ");
-		utf8_print(get_cp_info(m->name_index).utf8);
+		utf8_print(get_cp_info(current_method->name_index).utf8);
 		printf("Stack pointer: 0x%02x\n", sp);
 		printf("Inst. pointer: 0x%p\n", ip);
 		printf("\nStack\n");
