@@ -1,12 +1,26 @@
 bool utf8_match(UTF8 utf8, const char *str);
 bool utf8_match(UTF8 l, UTF8 r);
-void utf8_print(UTF8 utf8);
+void utf8_print(UTF8 utf8, bool new_line=true);
+
+enum Type {
+	VOID,
+	INT,
+};
+
+struct FunctionType {
+	u32 parameter_count = 0;
+	Type return_type;
+};
+
+Type parse_type(u8 c);
+FunctionType parse_function_type(UTF8 utf8);
 
 struct Value {
 	enum Value_Type {
 		INT,
 		STRING,
 		TYPE,
+		OBJECT,
 	};
 
 	Value_Type type;
@@ -28,6 +42,7 @@ void value_print(Value value);
 Value make_int(long int val);
 Value make_string(UTF8 utf8);
 Value make_type(UTF8 clazz, UTF8 member);
+Value make_object(UTF8 utf8);
 
 struct Call_Frame {
 	Value *stack;
@@ -66,8 +81,9 @@ struct NJVM {
 		}
 	}
 
-	void call(Method_Info *m) {
-		Code_Info ci = find_code(m);	
+	void call(Method_Info *m, bool on_object) {
+		Code_Info ci = find_code(m);
+		debug_info(m);
 
 		Call_Frame frame = save_frame();
 
@@ -76,10 +92,16 @@ struct NJVM {
 		ip = ci.code;
 		sp = 0;
 
-		// parameters
-		u8 par_count = 2;
+		FunctionType ft = parse_function_type(get_cp_info(m->descriptor_index).utf8);
+		u8 par_count = ft.parameter_count;
+
 		for (int k = 0; k < par_count; ++k) {
 			store(k, frame.stack[--frame.sp]);
+		}
+
+		if (on_object) {
+			/* TOOD: figure out what I must do with this? */
+			frame.sp--;
 		}
 
 		bool sbreak = false;
@@ -88,7 +110,9 @@ struct NJVM {
 		}
 
 		// return value
-		frame.stack[frame.sp++] = pop();
+		if (ft.return_type != Type::VOID) {
+			frame.stack[frame.sp++] = pop();
+		}
 
 		restore_frame(frame);
 	}
@@ -116,6 +140,20 @@ struct NJVM {
 			case OP_ILOAD: {
 				load(fetch_u8());
 			} break;
+			case OP_ALOAD: {
+				load(fetch_u8());
+			} break;
+			case OP_ALOAD_0: case OP_ALOAD_1:
+			case OP_ALOAD_2: case OP_ALOAD_3: {
+				load(opcode - 0x2a);
+			} break;
+			case OP_ASTORE: {
+				store(fetch_u8());
+			} break;
+			case OP_ASTORE_0: case OP_ASTORE_1:
+			case OP_ASTORE_2: case OP_ASTORE_3: {
+				store(opcode - 0x4b);
+			} break;
 			case OP_ILOAD_0: case OP_ILOAD_1:
 			case OP_ILOAD_2: case OP_ILOAD_3: {
 				load(opcode - 0x1a);
@@ -126,6 +164,14 @@ struct NJVM {
 			case OP_ISTORE_0: case OP_ISTORE_1:
 			case OP_ISTORE_2: case OP_ISTORE_3: {
 				store(opcode - 0x3b);
+			} break;
+			case OP_POP: {
+				pop();
+			} break;
+			case OP_DUP: {
+				Value val = pop();
+				push(val);
+				push(val);
 			} break;
 			case OP_IADD: {
 				long int l = pop().int_value;
@@ -154,13 +200,44 @@ struct NJVM {
 				CP_Info class_name = get_class_name(method_ref.class_index);
 				CP_Info member_name = get_member_name(method_ref.name_and_type_index);
 
-				Value val = pop();
+				if	(utf8_match(class_name.utf8, "java/io/PrintStream") && utf8_match(member_name.utf8, "println")) {
+					Value val = pop();
+					Value field = pop();
+
+					if (utf8_match(field.clazz, "java/lang/System") && utf8_match(field.member, "out")) {
+					 	value_print(val);
+					}
+				} else {
+					for (u16 i = 0; i < cf->methods_count; ++i) {
+						Method_Info *mi = &cf->methods[i];
+						CP_Info name = get_cp_info(mi->name_index);
+
+						/* check class later */
+						if (utf8_match(member_name.utf8, name.utf8)) {
+							call(mi, true);
+							break;
+						}
+					}
+				}
+			} break;
+			case OP_INVOKESPECIAL: {
+				u16 method_index = fetch_u16();
+				CP_Info method_ref = get_cp_info(method_index);
+				CP_Info class_name = get_class_name(method_ref.class_index);
+				CP_Info member_name = get_member_name(method_ref.name_and_type_index);
+
 				Value field = pop();
+				
+				for (u16 i = 0; i < cf->methods_count; ++i) {
+					Method_Info *mi = &cf->methods[i];
+					CP_Info name = get_cp_info(mi->name_index);
 
-				if (utf8_match(field.clazz, "java/lang/System") && utf8_match(field.member, "out") &&
-						utf8_match(class_name.utf8, "java/io/PrintStream") && utf8_match(member_name.utf8, "println")) {
-
-					value_print(val);
+					/* check class later */
+					/*
+					if (utf8_match(member_name.utf8, name.utf8)) {
+						call(mi, true);
+						break;
+					}*/
 				}
 			} break;
 			case OP_INVOKESTATIC: {
@@ -175,10 +252,18 @@ struct NJVM {
 
 					/* check class later */
 					if (utf8_match(member_name.utf8, name.utf8)) {
-						call(mi);
+						call(mi, false);
 						break;
 					}
 				}
+			} break;
+			case OP_NEW: {
+				u16 index = fetch_u16();
+
+				CP_Info constant_clazz = get_cp_info(index);
+				CP_Info class_name = get_cp_info(constant_clazz.name_index);
+
+				push(make_object(class_name.utf8));
 			} break;
 			default: {
 				printf("Unhandled opcode: %02x\n", opcode);
@@ -290,7 +375,79 @@ struct NJVM {
 		return get_cp_info(ci.name_index);
 	}
 	
+	void debug_info(Method_Info *m) {
+		printf("------------- DEBUG INFO -------------\n");
+		printf("Current function: ");
+		utf8_print(get_cp_info(m->name_index).utf8);
+		printf("Stack pointer: 0x%02x\n", sp);
+		printf("Inst. pointer: 0x%p\n", ip);
+		printf("\nStack\n");
+		
+		for (u8 i = 0; i < sp; ++i) {
+			printf("%02x: ", i);
+			debug_value(stack[i]);
+		} 
+		
+		printf("--------------------------------------\n");
+	}
+
+	void debug_value(Value value) {
+		switch (value.type) {
+			case Value::STRING: {
+				printf("string '");
+				utf8_print(value.utf8, false);
+				putc('\'', stdout);
+				putc('\n', stdout);
+			} break;
+			case Value::INT: printf("int %ld\n", value.int_value); break;
+			case Value::TYPE: {
+				printf("type ");
+				utf8_print(value.clazz, false);
+				printf(".");
+				utf8_print(value.member);
+			} break;
+			case Value::OBJECT: {
+				printf("object ");
+				utf8_print(value.utf8);
+			}
+		}
+	}
 };
+
+Type parse_type(u8 c) {
+	switch (c) {
+		case 'V': return Type::VOID;
+		case 'I': return Type::INT;
+		default: {
+			printf("Unknown type '%c'\n", c);
+		};
+	}
+	
+	return Type::VOID;
+}
+
+FunctionType parse_function_type(UTF8 utf8) {
+	FunctionType type;
+	
+	bool pars = false;
+	for (u16 i = 0; i < utf8.length; ++i) {
+		u8 c = utf8.bytes[i];
+
+		if (c == '(') {
+			pars = true;
+		} else if (c == ')') {
+			pars = false;
+		} else {
+			if (pars) {
+				type.parameter_count++;
+			} else {
+				type.return_type = parse_type(c);
+			}
+		}
+	}
+
+	return type;
+}
 
 bool utf8_match(UTF8 utf8, const char *str) {
 	if (strlen(str) != utf8.length) return false;
@@ -316,15 +473,17 @@ bool utf8_match(UTF8 l, UTF8 r) {
 	return true;
 }
 
-void utf8_print(UTF8 utf8) {
-	printf("%.*s\n", utf8.length, utf8.bytes);
+void utf8_print(UTF8 utf8, bool new_line) {
+	printf("%.*s", utf8.length, utf8.bytes);
+	if (new_line)
+		putc('\n', stdout);
 }
 
 void value_print(Value value) {
 	switch (value.type) {
 		case Value::STRING: utf8_print(value.utf8); break;
 		case Value::INT: printf("%ld\n", value.int_value); break;
-		default: printf("Havent implenented print for type %d\n", value.type); break;
+		default: printf("Havent implemented print for type %d\n", value.type); break;
 	}
 }
 
@@ -347,5 +506,12 @@ Value make_type(UTF8 clazz, UTF8 member) {
 	v.type = Value::TYPE;
 	v.clazz = clazz;
 	v.member = member;
+	return v;
+}
+
+Value make_object(UTF8 utf8) {
+	Value v;
+	v.type = Value::OBJECT;
+	v.utf8 = utf8;
 	return v;
 }
