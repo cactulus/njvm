@@ -1,19 +1,5 @@
-bool utf8_match(UTF8 utf8, const char *str);
-bool utf8_match(UTF8 l, UTF8 r);
-void utf8_print(UTF8 utf8, bool new_line=true);
-
-enum Type {
-	VOID,
-	INT,
-};
-
-struct FunctionType {
-	u32 parameter_count = 0;
-	Type return_type;
-};
-
-Type parse_type(u8 c);
-FunctionType parse_function_type(UTF8 utf8);
+void string_print(String str);
+void string_println(String str);
 
 struct Value {
 	enum Value_Type {
@@ -26,26 +12,28 @@ struct Value {
 	Value_Type type;
 
 	union {
-		UTF8 utf8;
+		String utf8;
 		long int int_value;
 
 		struct {
-			UTF8 clazz;
-			UTF8 member;
+			String clazz;
+			String member;
 		};
 	};
+
+	Value() {}
 };
 
-bool utf8_match(Value value, const char *str);
 void value_print(Value value);
 
 Value make_int(long int val);
-Value make_string(UTF8 utf8);
-Value make_type(UTF8 clazz, UTF8 member);
-Value make_object(UTF8 utf8);
+Value make_string(String str);
+Value make_type(String clazz, String member);
+Value make_object(String utf8);
 
 struct Call_Frame {
-	Method_Info *current_method;
+	Class *clazz;
+	Method *method;
 	Value *stack;
 	Value *locals;
 	u8 *ip;
@@ -53,25 +41,25 @@ struct Call_Frame {
 };
 
 struct NJVM {
-	Method_Info *current_method;
-	Class_File *cf;
+	Method *method;
+	Class *clazz;
 	Value *stack;
 	Value *locals;
 	u8 *ip;
 	u8 sp;
 
-	NJVM(Class_File *cf) {
-		this->cf = cf;
+	NJVM(Class *main_class) {
+		this->clazz = main_class;
 	}
 
 	void run() {
-		Method_Info *main_method = find_method("main");
+		Method *main_method = find_method("main");
 		call_main(main_method);
 	}
 
-	void call_main(Method_Info *m) {
-		Code_Info ci = find_code(m);	
-		current_method = m;
+	void call_main(Method *m) {
+		Code ci = find_code(m);	
+		method = m;
 
 		stack = (Value *) malloc(ci.max_stack * sizeof(Value));
 		locals = (Value *) malloc(ci.max_locals * sizeof(Value));
@@ -84,9 +72,9 @@ struct NJVM {
 		}
 	}
 
-	void call(Method_Info *m, bool on_object) {
-		Code_Info ci = find_code(m);
-		current_method = m;
+	void call(Method *m, bool on_object) {
+		Code ci = find_code(m);
+		method = m;
 
 		Call_Frame frame = save_frame();
 
@@ -95,8 +83,7 @@ struct NJVM {
 		ip = ci.code;
 		sp = 0;
 
-		FunctionType ft = parse_function_type(get_cp_info(m->descriptor_index).utf8);
-		u8 par_count = ft.parameter_count;
+		u8 par_count = m->type->parameters.length;
 
 		for (int k = 1; k <= par_count; ++k) {
 			store(k, frame.stack[--frame.sp]);
@@ -113,7 +100,7 @@ struct NJVM {
 		}
 
 		// return value
-		if (ft.return_type != Type::VOID) {
+		if (m->type->return_type->type != Type::VOID) {
 			frame.stack[frame.sp++] = pop();
 		}
 
@@ -203,23 +190,17 @@ struct NJVM {
 				CP_Info class_name = get_class_name(method_ref.class_index);
 				CP_Info member_name = get_member_name(method_ref.name_and_type_index);
 
-				if	(utf8_match(class_name.utf8, "java/io/PrintStream") && utf8_match(member_name.utf8, "println")) {
+				if	(class_name.utf8 == "java/io/PrintStream" && member_name.utf8 == "println") {
 					Value val = pop();
 					Value field = pop();
 
-					if (utf8_match(field.clazz, "java/lang/System") && utf8_match(field.member, "out")) {
+					if (field.clazz == "java/lang/System" && field.member == "out") {
 					 	value_print(val);
 					}
 				} else {
-					for (u16 i = 0; i < cf->methods_count; ++i) {
-						Method_Info *mi = &cf->methods[i];
-						CP_Info name = get_cp_info(mi->name_index);
-
-						/* check class later */
-						if (utf8_match(member_name.utf8, name.utf8)) {
-							call(mi, true);
-							break;
-						}
+					Method *m = find_method(class_name.utf8, member_name.utf8);
+					if (m) {
+						call(m, true);
 					}
 				}
 			} break;
@@ -231,16 +212,9 @@ struct NJVM {
 
 				Value field = pop();
 				
-				for (u16 i = 0; i < cf->methods_count; ++i) {
-					Method_Info *mi = &cf->methods[i];
-					CP_Info name = get_cp_info(mi->name_index);
-
-					/* check class later */
-					/*
-					if (utf8_match(member_name.utf8, name.utf8)) {
-						call(mi, true);
-						break;
-					}*/
+				Method *m = find_method(class_name.utf8, member_name.utf8);
+				if (m) {
+					call(m, true);
 				}
 			} break;
 			case OP_INVOKESTATIC: {
@@ -249,16 +223,8 @@ struct NJVM {
 				CP_Info method_ref = get_cp_info(method_index);
 				CP_Info member_name = get_member_name(method_ref.name_and_type_index);
 				
-				for (u16 i = 0; i < cf->methods_count; ++i) {
-					Method_Info *mi = &cf->methods[i];
-					CP_Info name = get_cp_info(mi->name_index);
-
-					/* check class later */
-					if (utf8_match(member_name.utf8, name.utf8)) {
-						call(mi, false);
-						break;
-					}
-				}
+				Method *m = find_method(member_name.utf8);
+				call(m, false);
 			} break;
 			case OP_NEW: {
 				u16 index = fetch_u16();
@@ -285,8 +251,7 @@ struct NJVM {
 	}
 
 	void store(u8 index, Value value) {
-		assert(index > 0);
-		locals[index - 1] = value;
+		locals[index] = value;
 	}
 
 	void store(u8 index) {
@@ -294,8 +259,7 @@ struct NJVM {
 	}
 
 	void load(u8 index) {
-		assert(index > 0);
-		push(locals[index - 1]);
+		push(locals[index]);
 	}
 
 	u8 fetch_u8() {
@@ -311,7 +275,8 @@ struct NJVM {
 	Call_Frame save_frame() {
 		Call_Frame frame;
 		
-		frame.current_method = current_method;
+		frame.clazz = clazz;
+		frame.method = method;
 		frame.stack = stack;
 		frame.locals = locals;
 		frame.ip = ip;
@@ -328,15 +293,43 @@ struct NJVM {
 		locals = frame.locals;
 		ip = frame.ip;
 		sp = frame.sp;
-		current_method = frame.current_method;
+		method = frame.method;
+		clazz = frame.clazz;
 	}
 
-	Method_Info *find_method(const char *mname) {
-		for (u16 i = 0; i < cf->methods_count; ++i) {
-			Method_Info *m = &cf->methods[i];
+	Method *find_method(String class_name, String name) {
+		if (class_name != clazz->name) {
+			return 0;
+		}
+
+		for (u16 i = 0; i < clazz->methods_count; ++i) {
+			Method *m = &clazz->methods[i];
+			if (m->name == name) {
+				return m;
+			}
+		}
+
+		return 0;
+	}
+
+	Method *find_method(String name) {
+		for (u16 i = 0; i < clazz->methods_count; ++i) {
+			Method *m = &clazz->methods[i];
+			if (m->name == name) {
+				return m;
+			}
+		}
+
+		printf("Can't find function %.*s\n", name.length, name.data);
+		return 0;
+	}
+
+	/* Finds class in current class only */
+	Method *find_method(const char *mname) {
+		for (u16 i = 0; i < clazz->methods_count; ++i) {
+			Method *m = &clazz->methods[i];
 			
-			CP_Info name = get_cp_info(m->name_index);
-			if (utf8_match(name.utf8, mname)) {
+			if (m->name == mname) {
 				return m;
 			}
 		}
@@ -345,14 +338,12 @@ struct NJVM {
 		return 0;
 	}
 
-	Code_Info find_code(Method_Info *m) {
-		Code_Info info;
+	Code find_code(Method *m) {
+		Code info;
 
 		for (u16 i = 0; i < m->attributes_count; ++i) {
-			Attribute_Info *a = &m->attributes[i];
-			CP_Info name = get_cp_info(a->attribute_name_index);
-
-			if (utf8_match(name.utf8, "Code")) {
+			Attribute *a = &m->attributes[i];
+			if (a->name == "Code") {
 				Reader r(a->info, a->attribute_length);	
 				info.max_stack = r.read_u16();
 				info.max_locals = r.read_u16();
@@ -369,7 +360,7 @@ struct NJVM {
 	}
 
 	CP_Info get_cp_info(u16 index) {
-		return cf->constant_pool[index - 1];
+		return clazz->constant_pool[index - 1];
 	}
 
 	CP_Info get_class_name(u16 class_index) {
@@ -384,8 +375,10 @@ struct NJVM {
 	
 	void debug_info() {
 		printf("------------- DEBUG INFO -------------\n");
-		printf("Current function: ");
-		utf8_print(get_cp_info(current_method->name_index).utf8);
+		printf("Current class: ");
+		string_println(clazz->name);
+		printf("Current method: ");
+		string_println(method->name);
 		printf("Stack pointer: 0x%02x\n", sp);
 		printf("Inst. pointer: 0x%p\n", ip);
 		printf("\nStack\n");
@@ -402,93 +395,36 @@ struct NJVM {
 		switch (value.type) {
 			case Value::STRING: {
 				printf("string '");
-				utf8_print(value.utf8, false);
+				string_print(value.utf8);
 				putc('\'', stdout);
 				putc('\n', stdout);
 			} break;
 			case Value::INT: printf("int %ld\n", value.int_value); break;
 			case Value::TYPE: {
 				printf("type ");
-				utf8_print(value.clazz, false);
+				string_print(value.clazz);
 				printf(".");
-				utf8_print(value.member);
+				string_println(value.member);
 			} break;
 			case Value::OBJECT: {
 				printf("object ");
-				utf8_print(value.utf8);
+				string_println(value.utf8);
 			}
 		}
 	}
 };
 
-Type parse_type(u8 c) {
-	switch (c) {
-		case 'V': return Type::VOID;
-		case 'I': return Type::INT;
-		default: {
-			printf("Unknown type '%c'\n", c);
-		};
-	}
-	
-	return Type::VOID;
+void string_print(String str) {
+	printf("%.*s", str.length, str.data);
 }
 
-FunctionType parse_function_type(UTF8 utf8) {
-	FunctionType type;
-	
-	bool pars = false;
-	for (u16 i = 0; i < utf8.length; ++i) {
-		u8 c = utf8.bytes[i];
-
-		if (c == '(') {
-			pars = true;
-		} else if (c == ')') {
-			pars = false;
-		} else {
-			if (pars) {
-				type.parameter_count++;
-			} else {
-				type.return_type = parse_type(c);
-			}
-		}
-	}
-
-	return type;
-}
-
-bool utf8_match(UTF8 utf8, const char *str) {
-	if (strlen(str) != utf8.length) return false;
-
-	for (u16 k = 0; k < utf8.length; ++k) {
-		if (str[k] != utf8.bytes[k]) {
-			return false;
-		}
-	}
-
-	return true;
-}
-
-bool utf8_match(UTF8 l, UTF8 r) {
-	if (l.length != r.length) return false;
-
-	for (u16 k = 0; k < l.length; ++k) {
-		if (l.bytes[k] != r.bytes[k]) {
-			return false;
-		}
-	}
-
-	return true;
-}
-
-void utf8_print(UTF8 utf8, bool new_line) {
-	printf("%.*s", utf8.length, utf8.bytes);
-	if (new_line)
-		putc('\n', stdout);
+void string_println(String str) {
+	printf("%.*s\n", str.length, str.data);
 }
 
 void value_print(Value value) {
 	switch (value.type) {
-		case Value::STRING: utf8_print(value.utf8); break;
+		case Value::STRING: string_println(value.utf8); break;
 		case Value::INT: printf("%ld\n", value.int_value); break;
 		default: printf("Havent implemented print for type %d\n", value.type); break;
 	}
@@ -501,14 +437,14 @@ Value make_int(long int val) {
 	return v;
 }
 
-Value make_string(UTF8 utf8) {
+Value make_string(String utf8) {
 	Value v;
 	v.type = Value::STRING;
 	v.utf8 = utf8;
 	return v;
 }
 
-Value make_type(UTF8 clazz, UTF8 member) {
+Value make_type(String clazz, String member) {
 	Value v;
 	v.type = Value::TYPE;
 	v.clazz = clazz;
@@ -516,7 +452,7 @@ Value make_type(UTF8 clazz, UTF8 member) {
 	return v;
 }
 
-Value make_object(UTF8 utf8) {
+Value make_object(String utf8) {
 	Value v;
 	v.type = Value::OBJECT;
 	v.utf8 = utf8;

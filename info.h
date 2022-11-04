@@ -1,8 +1,3 @@
-struct UTF8 {
-	u16 length;
-	u8 *bytes;
-};
-
 struct CP_Info {
 	u8 tag;
 
@@ -23,33 +18,19 @@ struct CP_Info {
 		};
 
 		/* Utf-8 */
-		UTF8 utf8;
+		String utf8;
 	};
+
+	CP_Info() {}
 };
 
-struct Attribute_Info {
-	u16 attribute_name_index;
+struct Attribute {
+	String name;
 	u32 attribute_length;
 	u8 *info;
 };
 
-struct Field_Info {
-	u16 access_flags;
-	u16 name_index;
-	u16 descriptor_index;
-	u16 attributes_count;
-	Attribute_Info *attributes;
-};
-
-struct Method_Info {
-	u16 access_flags;
-	u16 name_index;
-	u16 descriptor_index;
-	u16 attributes_count;
-	Attribute_Info *attributes;
-};
-
-struct Code_Info {
+struct Code {
 	u16 max_stack;
 	u16 max_locals;
 	u32 code_length;
@@ -57,21 +38,54 @@ struct Code_Info {
 	/* TODO: complete */
 };
 
-struct Class_File {
-	u32 magic;
-	u16 minor_version;
-	u16 major_version;
+struct Type {
+	enum BaseType {
+		VOID,
+		INT,
+		FUNCTION,
+		ARRAY,
+		CLASS,
+	};
+
+	BaseType type;
+	
+	String clazz_name;
+	Type *element_type;
+
+	Array<Type *> parameters;
+	Type *return_type;
+
+	Type() {}
+};
+
+struct Method {
+	u16 access_flags;
+	String name;
+	Type *type;
+	u16 attributes_count;
+	Attribute *attributes;
+};
+
+struct Field {
+	u16 access_flags;
+	String name;
+	Type *type;
+	u16 attributes_count;
+	Attribute *attributes;
+};
+
+struct Class {
+	u16 access_flags;
+	String name;
+	String super_name;
 	u16 constant_pool_count;
 	CP_Info *constant_pool;
-	u16 access_flags;
-	u16 this_class;
-	u16 super_class;
-	u16 interfaces_count;
-	u16 *interfaces;
-	u16 fields_count;
-	Field_Info *fields;
 	u16 methods_count;
-	Method_Info *methods;
-	u16 attributes_count;
-	Attribute_Info *attributes;
+	Method *methods;
+	u16 fields_count;
+	Field *fields;
 };
+
+/* TODO: cleanup. Don't really want them to stay globally for ever */
+extern Type *type_void;
+extern Type *type_int;
