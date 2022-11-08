@@ -11,6 +11,10 @@ struct Reader {
 
 	Reader(const char *file_name) {
 		FILE *f = fopen(file_name, "rb");
+        if (!f) {
+            printf("Failed to open file '%s'\n", file_name);
+            exit(1);
+        }
 
 		fseek(f, 0, SEEK_END);
 		length = ftell(f);

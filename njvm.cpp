@@ -109,6 +109,9 @@ struct NJVM {
 
 	bool execute() {
 		u8 opcode = fetch_u8();
+
+		printf("%02x\n", opcode);
+
 		switch (opcode) {
 			case OP_ICONST_0: case OP_ICONST_1:
 			case OP_ICONST_2: case OP_ICONST_3:
@@ -163,11 +166,40 @@ struct NJVM {
 				push(val);
 				push(val);
 			} break;
-			case OP_IADD: {
+			case OP_IADD:
+			case OP_ISUB:
+			case OP_IMUL:
+			case OP_IDIV:
+			case OP_IREM:
+			case OP_ISHL:
+			case OP_ISHR: {
 				long int l = pop().int_value;
 				long int r = pop().int_value;
 
-				push(make_int(l + r));
+				switch (opcode) {
+					case OP_IADD: push(make_int(l + r)); break;
+					case OP_ISUB: push(make_int(l - r)); break;
+					case OP_IMUL: push(make_int(l * r)); break;
+					case OP_IDIV: push(make_int(l / r)); break;
+					case OP_IREM: push(make_int(l % r)); break;
+					case OP_ISHL: push(make_int(l << r)); break;
+					case OP_ISHR: push(make_int(l >> r)); break;
+				}
+			} break;
+			case OP_INEG: {
+				Value v = pop();
+				v.int_value = -v.int_value;
+				push(v);
+			} break;
+			case OP_IINC: {
+				u8 index = fetch_u8();
+				locals[index].int_value++;
+			} break;
+			case OP_GOTO: {
+				u16 offset_u = fetch_u16();
+				s16 offset = (s16) offset_u;
+
+				ip += offset;
 			} break;
 			case OP_IRETURN:
 			case OP_RETURN: {
