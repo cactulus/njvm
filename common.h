@@ -1,10 +1,6 @@
 #ifndef COMMON_H_
 #define COMMON_H_
 
-/* 
- * credits to machinamentumdf
- */
-
 #include <assert.h>
 #include <cstdarg>
 #include <cstdio>

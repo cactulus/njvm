@@ -1,6 +1,10 @@
-#include <stdlib.h>
-#include <stdio.h>
-#include <string.h>
+#include <cassert>
+#include <cstdlib>
+#include <cstring>
+
+#include <llvm/IR/LLVMContext.h>
+#include <llvm/IR/IRBuilder.h>
+#include <llvm/IR/Module.h>
 
 #include "common.h"
 
@@ -9,6 +13,7 @@
 
 #include "reader.cpp"
 #include "njvm.cpp"
+#include "njit.cpp"
 
 Type *type_void;
 Type *type_int;
@@ -23,11 +28,19 @@ int main() {
 	type_int = make_primitive(Type::INT);
 	type_void = make_primitive(Type::VOID);
 
-	ClassReader cr("HelloWorld.class");
+    /* Temp for tests */
+    system("javac HelloWorld.java");
+    const char *class_file = "HelloWorld.class";
+
+	ClassReader cr(class_file);
 	Class *clazz = cr.read();
 
+    /*
 	NJVM vm(clazz);
-	vm.run();
+	vm.run();*/
+
+    NJIT jit(clazz);
+    jit.run();
 
 	return 0;
 }

@@ -85,7 +85,7 @@ struct NJVM {
 
 		u8 par_count = m->type->parameters.length;
 
-		for (int k = 1; k <= par_count; ++k) {
+		for (int k = 0; k < par_count; ++k) {
 			store(k, frame.stack[--frame.sp]);
 		}
 
@@ -109,8 +109,6 @@ struct NJVM {
 
 	bool execute() {
 		u8 opcode = fetch_u8();
-
-		printf("%02x\n", opcode);
 
 		switch (opcode) {
 			case OP_ICONST_0: case OP_ICONST_1:
@@ -241,8 +239,6 @@ struct NJVM {
 				CP_Info method_ref = get_cp_info(method_index);
 				CP_Info class_name = get_class_name(method_ref.class_index);
 				CP_Info member_name = get_member_name(method_ref.name_and_type_index);
-
-				Value field = pop();
 				
 				Method *m = find_method(class_name.utf8, member_name.utf8);
 				if (m) {
