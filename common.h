@@ -61,6 +61,15 @@ inline char *to_c_string(String s) {
     return mem;
 }
 
+inline String operator+(const String &s, const String &t) {
+    String r;
+    r.length = s.length + t.length,
+    r.data = (u8 *) malloc(r.length);
+    memcpy(r.data, s.data, s.length);
+    memcpy(r.data + s.length, t.data, t.length);
+    return r;
+}
+
 inline bool operator==(const String &s, const String &t) {
     if (s.length != t.length) return false;
     if (s.data == 0 && t.data != 0) return false;

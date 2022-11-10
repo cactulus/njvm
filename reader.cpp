@@ -205,6 +205,7 @@ struct ClassReader {
 		clazz->methods = (Method *) malloc(sizeof(Method) * clazz->methods_count);
 		for (u16 i = 0; i < clazz->methods_count; ++i) {
 			clazz->methods[i] = read_method();
+            clazz->methods[i].clazz = clazz;
 		}
 
 		u16 attributes_count = r->read_u16();
@@ -219,17 +220,17 @@ struct ClassReader {
 		delete r;
 	}
 
-	Type *read_type() {
+	NType *read_type() {
 		String str = read_name();
 		return parse_type(str);
 	}
 
-	Type *parse_type(String str) {
+    NType *parse_type(String str) {
 		u8 first = str.data[0];
 
 		if (first == '(') {
-			Type *ty = new Type();
-			ty->type = Type::FUNCTION;
+            NType *ty = new NType();
+			ty->type = NType::FUNCTION;
 			
 			u16 i = 1;
 			while (str.data[i] != ')') {
@@ -243,8 +244,8 @@ struct ClassReader {
 			return parse_type(str, 0);
 		}
 	}
-		
-	Type *parse_type(String str, u16 *i) {
+
+    NType *parse_type(String str, u16 *i) {
 		u16 start = i ? *i : 0;
 		u8 c = str.data[start];
 
@@ -261,13 +262,14 @@ struct ClassReader {
 
 			(*i) += len + 2; /* 2 -> L and ;*/
 
-			Type *ty = new Type();
+            NType *ty = new NType();
+            ty->type = NType::CLASS;
 			ty->clazz_name = str.substring(start + 1, len);
 			return ty;
 		} else if (c == '[') {
 			(*i)++;
-			Type *ty = new Type();
-			ty->type = Type::ARRAY;
+            NType *ty = new NType();
+			ty->type = NType::ARRAY;
 			ty->element_type = parse_type(str, i);
 			return ty;
 		} else {
@@ -275,7 +277,7 @@ struct ClassReader {
 				(*i)++;
 			}
 			switch (c) {
-				case 'V': return type_int; 
+				case 'V': return type_void;
 				case 'I': return type_int; 
 				default: {
 					printf("Unknown type '%c'\n", c);

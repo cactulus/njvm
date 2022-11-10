@@ -38,7 +38,7 @@ struct Code {
 	/* TODO: complete */
 };
 
-struct Type {
+struct NType {
 	enum BaseType {
 		VOID,
 		INT,
@@ -50,26 +50,31 @@ struct Type {
 	BaseType type;
 	
 	String clazz_name;
-	Type *element_type;
+    NType *element_type;
 
-	Array<Type *> parameters;
-	Type *return_type;
+	Array<NType *> parameters;
+    NType *return_type;
 
-	Type() {}
+    NType() {}
 };
 
+struct Class;
 struct Method {
+    Class *clazz;
 	u16 access_flags;
 	String name;
-	Type *type;
+    NType *type;
 	u16 attributes_count;
 	Attribute *attributes;
+
+    /* remove later? */
+    llvm::Value *llvm_ref;
 };
 
 struct Field {
 	u16 access_flags;
 	String name;
-	Type *type;
+    NType *type;
 	u16 attributes_count;
 	Attribute *attributes;
 };
@@ -87,5 +92,5 @@ struct Class {
 };
 
 /* TODO: cleanup. Don't really want them to stay globally for ever */
-extern Type *type_void;
-extern Type *type_int;
+extern NType *type_void;
+extern NType *type_int;
