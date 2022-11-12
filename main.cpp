@@ -4,6 +4,7 @@
 
 #include <llvm/ExecutionEngine/ExecutionEngine.h>
 #include <llvm/ExecutionEngine/JITSymbol.h>
+#include <llvm/ExecutionEngine/MCJIT.h>
 #include <llvm/ExecutionEngine/SectionMemoryManager.h>
 #include <llvm/ExecutionEngine/Orc/ExecutionUtils.h>
 #include <llvm/ExecutionEngine/Orc/CompileUtils.h>
@@ -48,16 +49,17 @@ int main() {
 	type_void = make_primitive(NType::VOID);
 
     /* Temp for tests */
-    system("javac HelloWorld.java");
+    system("javac HelloWorld.java -g:none");
     const char *class_file = "HelloWorld.class";
 
 	ClassReader cr(class_file);
 	Class *clazz = cr.read();
 
     /*
-    Interpreter interp(clazz);
+    interp::Interpreter interp(clazz);
     interp.run();
 */
+
     jit::Jit jit(clazz);
     jit.run();
 

@@ -82,6 +82,18 @@ enum {
 	OP_IAND = 0x7e,
 	OP_IOR = 0x80,
 	OP_IINC = 0x84,
+    OP_IFEQ = 0x99,
+    OP_IFNE = 0x9a,
+    OP_IFLT = 0x9b,
+    OP_IFGE = 0x9c,
+    OP_IFGT = 0x9d,
+    OP_IFLE = 0x9e,
+    OP_IF_ICMPEQ = 0x9f,
+    OP_IF_ICMPNE = 0xa0,
+    OP_IF_ICMPLT = 0xa1,
+    OP_IF_ICMPGE = 0xa2,
+    OP_IF_ICMPGT = 0xa3,
+    OP_IF_ICMPLE = 0xa4,
 	OP_GOTO = 0xa7,
 	OP_IRETURN = 0xac,
 	OP_RETURN = 0xb1,
@@ -92,3 +104,7 @@ enum {
 	OP_NEW = 0xbb
 };
 
+enum {
+    INST_LABEL = 9,
+    INST_LABELW = 10,
+};

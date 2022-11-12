@@ -6,7 +6,9 @@ void string_println(String str) {
     printf("%.*s\n", str.length, str.data);
 }
 
+
 struct Backend {
+    u8 inst_types[220];
     Method *method;
     Class *clazz;
     u8 *ip;
@@ -14,6 +16,15 @@ struct Backend {
 
     Backend(Class *main_class) {
         clazz = main_class;
+
+        char s[] = "AAAAAAAAAAAAAAAABCLMMDDDDDEEEEEEEEEEEEEEEEEEEEAAAAAAAADD"
+                   "DDDEEEEEEEEEEEEEEEEEEEEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+                   "AAAAAAAAAAAAAAAAANAAAAAAAAAAAAAAAAAAAAJJJJJJJJJJJJJJJJDOPAA"
+                   "AAAAGGGGGGGHIFBFAAFFAARQJJKKJJJJJJJJJJJJJJJJJJ";
+
+        for (int i = 0; i < 220; ++i) {
+            inst_types[i] = (u8) (s[i] - 'A');
+        }
     }
 
     virtual void run() = 0;
@@ -60,6 +71,9 @@ struct Backend {
     }
 
     Code find_code(Method *m) {
+        if (m->code.code != 0)
+            return m->code;
+
         Code info;
 
         for (u16 i = 0; i < m->attributes_count; ++i) {
@@ -77,6 +91,7 @@ struct Backend {
             }
         }
 
+        m->code = info;
         return info;
     }
 
@@ -102,5 +117,9 @@ struct Backend {
         u16 f = fetch_u8();
         u16 s = fetch_u8();
         return (f << 8) | s;
+    }
+
+    u16 base_offset() {
+        return ip - method->code.code - 1;
     }
 };

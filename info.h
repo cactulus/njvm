@@ -67,8 +67,10 @@ struct Method {
 	u16 attributes_count;
 	Attribute *attributes;
 
+    Code code = {0};
+
     /* remove later? */
-    llvm::Value *llvm_ref;
+    llvm::Function *llvm_ref;
 };
 
 struct Field {

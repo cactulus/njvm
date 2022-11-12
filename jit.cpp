@@ -1,63 +1,49 @@
+extern "C" {
+    void print_int(int a) {
+        printf("%d\n", a);
+    }
+}
+
+
 namespace jit {
     using namespace llvm;
     using namespace llvm::orc;
 
 #define STR_REF(x) StringRef((const char * ) x.data, x.length)
-    struct LLVMJit {
-        ExecutionSession ES;
-        RTDyldObjectLinkingLayer ObjectLayer;
-        IRCompileLayer CompileLayer;
-        IRTransformLayer TransformLayer;
-        DataLayout DL;
-        MangleAndInterner Mangle;
-        ThreadSafeContext Ctx;
 
-        LLVMJit(JITTargetMachineBuilder JTMB, DataLayout DL) : ObjectLayer(ES,
-        []() { return llvm::make_unique<SectionMemoryManager>(); }),
-        CompileLayer(ES, ObjectLayer, ConcurrentIRCompiler(std::move(JTMB))),
-        /* Transform: maybe optimize */
-        TransformLayer(ES, CompileLayer, IRTransformLayer::identityTransform),
-        DL(std::move(DL)), Mangle(ES, this->DL),
-        Ctx(llvm::make_unique<LLVMContext>()) {
-            ES.getMainJITDylib().setGenerator(
-                    cantFail(DynamicLibrarySearchGenerator::GetForCurrentProcess(DL)));
+    struct ControlFlow {
+        Array<u16> offsets;
+        Array<BasicBlock *> blocks;
+
+        void add(u16 offset, BasicBlock *block) {
+            offsets.add(offset);
+            blocks.add(block);
         }
 
-        static Expected<std::unique_ptr<LLVMJit>> Create() {
-            auto JTMB = JITTargetMachineBuilder::detectHost();
-            if ( ! JTMB )
-                return JTMB.takeError();
+        BasicBlock *find(u16 offset) {
+            for (s64 i = 0; i < offsets.length; ++i)
+                if (offsets[i] == offset)
+                    return blocks[i];
 
-            auto DL = JTMB->getDefaultDataLayoutForTarget();
-            if ( ! DL )
-                return DL.takeError();
-
-            return llvm::make_unique<LLVMJit>(std::move(*JTMB), std::move(*DL));
-        }
-
-        const DataLayout& getDataLayout() const { return DL; }
-        LLVMContext& getContext() { return *Ctx.getContext(); }
-
-        Error addModule(std::unique_ptr<Module> M) {
-            return TransformLayer.add(ES.getMainJITDylib(), ThreadSafeModule(std::move(M), Ctx));
-        }
-
-        Expected<JITEvaluatedSymbol> lookup(StringRef Name) {
-            return ES.lookup({&ES.getMainJITDylib()}, Mangle(Name.str()));
+            return 0;
         }
     };
 
     struct Jit : Backend {
         LLVMContext context;
         std::unique_ptr<Module> module;
-        TargetMachine *target_machine;
         IRBuilder<> *irb;
         Value **stack;
         Value **locals;
 
+        ControlFlow control_flow;
+
         Type *llty_i8;
         Type *llty_i32;
         Type *llty_void;
+
+        // TODO: move somewhere else later
+        Function *print_int_fn = 0;
 
         Jit(Class *main_clazz) : Backend(main_clazz) {
             InitializeAllTargetInfos();
@@ -72,6 +58,10 @@ namespace jit {
             llty_i8 = Type::getInt8Ty(context);
             llty_i32 = Type::getInt32Ty(context);
             llty_void = Type::getVoidTy(context);
+
+            // TODO: move somewhere else later
+            auto print_int_fn_ty = FunctionType::get(llty_void, {llty_i32}, false);
+            print_int_fn = Function::Create(print_int_fn_ty, Function::ExternalLinkage, "print_int", *module);
         }
 
         void run() override {
@@ -83,39 +73,44 @@ namespace jit {
         }
 
         void finalize() {
-            std::string target_triple = llvm::sys::getDefaultTargetTriple();
-            target_machine = EngineBuilder().selectTarget();
-
-            module->setDataLayout(target_machine->createDataLayout());
-            module->setTargetTriple(target_triple);
-
             // optimize();
             module->print(outs(), 0);
-
-            auto llvm_jit_q = LLVMJit::Create();
-            if (!llvm_jit_q){
-                printf("Failed to initialize the JIT compiler. Terminating.");
-                exit(1);
-            }
-            auto llvm_jit = std::move(*llvm_jit_q);
-
             if (verifyModule(*module, &outs())) {
-                printf("Failed to verify module");
-                exit(1);
+                return;
             }
 
-            auto module_error = llvm_jit->addModule(std::move(module));
-            assert(!module_error && "Failed to add module\n");
+            EngineBuilder eb = EngineBuilder(std::move(module));
 
-            auto main_symbol = llvm_jit->lookup("main");
-            assert(main_symbol && "Main function found");
+            ExecutionEngine *ee = eb.create();
 
-            void (*main)() = (void (*)())(intptr_t)main_symbol->getAddress();
+            void (*print_int_ptr)(int) = print_int;
+            ee->addGlobalMapping(print_int_fn, (void *)print_int_ptr);
+
+            void (*main)() = (void (*)())(intptr_t) ee->getFunctionAddress("main");
             main();
+        }
+
+        void SetInsertBlock(BasicBlock *bb) {
+            if (!irb->GetInsertBlock()->getTerminator()) {
+                irb->CreateBr(bb);
+            }
+
+            irb->SetInsertPoint(bb);
         }
 
         void convert_opcode() {
             u8 opcode = fetch_u8();
+
+            u8 inst_type = inst_types[opcode];
+            if (inst_type == INST_LABEL || inst_type == INST_LABELW) {
+                BasicBlock *bb = get_or_create_block(base_offset());
+                SetInsertBlock(bb);
+            } else {
+                BasicBlock *bb = control_flow.find(base_offset());
+                if (bb) {
+                    SetInsertBlock(bb);
+                }
+            }
 
             switch (opcode) {
                 case OP_ICONST_0:
@@ -164,7 +159,9 @@ namespace jit {
                 case OP_IDIV:
                 case OP_IREM:
                 case OP_ISHL:
-                case OP_ISHR: {
+                case OP_ISHR:
+                case OP_IAND:
+                case OP_IOR: {
                     Value *l = pop();
                     Value *r = pop();
                     Instruction::BinaryOps op;
@@ -177,9 +174,56 @@ namespace jit {
                         case OP_IREM: op = Instruction::BinaryOps::SRem; break;
                         case OP_ISHL: op = Instruction::BinaryOps::AShr; break;
                         case OP_ISHR: op = Instruction::BinaryOps::AShr; break;
+                        case OP_IAND: op = Instruction::BinaryOps::And; break;
+                        case OP_IOR: op = Instruction::BinaryOps::Or; break;
                     }
 
                     push(irb->CreateBinOp(op, l, r));
+                } break;
+                case OP_IFEQ:
+                case OP_IFNE:
+                case OP_IFLT:
+                case OP_IFGE:
+                case OP_IFGT:
+                case OP_IFLE: {
+                    Value *zero = make_int(0);
+                    Value *val = pop();
+                    u16 off = base_offset() + fetch_u16();
+                    CmpInst::Predicate op;
+
+                    switch (opcode) {
+                        case OP_IFEQ: op = ICmpInst::ICMP_EQ; break;
+                        case OP_IFNE: op = ICmpInst::ICMP_NE; break;
+                        case OP_IFLT: op = ICmpInst::ICMP_SLT; break;
+                        case OP_IFGE: op = ICmpInst::ICMP_SGE; break;
+                        case OP_IFGT: op = ICmpInst::ICMP_SGT; break;
+                        case OP_IFLE: op = ICmpInst::ICMP_SLE; break;
+                    }
+
+                    create_cond_jump(op, val, zero, off);
+                } break;
+                case OP_IF_ICMPEQ:
+                case OP_IF_ICMPNE:
+                case OP_IF_ICMPLT:
+                case OP_IF_ICMPGE:
+                case OP_IF_ICMPGT:
+                case OP_IF_ICMPLE: {
+                    Value *l = pop();
+                    Value *r = pop();
+                    u16 off = base_offset() + fetch_u16();
+
+                    CmpInst::Predicate op;
+
+                    switch (opcode) {
+                        case OP_IF_ICMPEQ: op = ICmpInst::ICMP_EQ; break;
+                        case OP_IF_ICMPNE: op = ICmpInst::ICMP_NE; break;
+                        case OP_IF_ICMPLT: op = ICmpInst::ICMP_SLT; break;
+                        case OP_IF_ICMPGE: op = ICmpInst::ICMP_SGE; break;
+                        case OP_IF_ICMPGT: op = ICmpInst::ICMP_SGT; break;
+                        case OP_IF_ICMPLE: op = ICmpInst::ICMP_SLE; break;
+                    }
+
+                    create_cond_jump(op, l, r, off);
                 } break;
                 case OP_INEG: {
                     Value *v = pop();
@@ -198,6 +242,32 @@ namespace jit {
                 case OP_IRETURN:
                     irb->CreateRet(pop());
                     break;
+                case OP_GETSTATIC: {
+                    u16 field_index = fetch_u16();
+
+                    CP_Info field_ref = get_cp_info(field_index);
+                    CP_Info class_name = get_class_name(field_ref.class_index);
+                    CP_Info member_name = get_member_name(field_ref.name_and_type_index);
+
+                    /* TODO:  */
+                    sp++;
+                } break;
+                case OP_INVOKEVIRTUAL: {
+                    u16 method_index = fetch_u16();
+
+                    CP_Info method_ref = get_cp_info(method_index);
+                    CP_Info class_name = get_class_name(method_ref.class_index);
+                    CP_Info member_name = get_member_name(method_ref.name_and_type_index);
+
+                    if (class_name.utf8 == "java/io/PrintStream" && member_name.utf8 == "println") {
+                        call(module->getFunction("print_int"), 1, true);
+                    } else {
+                        Method *m = find_method(class_name.utf8, member_name.utf8);
+                        if (m) {
+                            call(m, true);
+                        }
+                    }
+                } break;
                 case OP_INVOKESPECIAL: {
                     u16 method_index = fetch_u16();
                     CP_Info method_ref = get_cp_info(method_index);
@@ -216,7 +286,9 @@ namespace jit {
                     CP_Info member_name = get_member_name(method_ref.name_and_type_index);
 
                     Method *m = find_method(member_name.utf8);
-                    call(m, false);
+                    if (m) {
+                        call(m, false);
+                    }
                 } break;
                 case OP_NEW: {
                     u16 index = fetch_u16();
@@ -234,8 +306,16 @@ namespace jit {
                 convert_method(m);
             }
 
+            Value *ret_val = call(m->llvm_ref, m->type->parameters.length, on_object);
+
+            if (m->type->return_type->type == NType::INT) {
+                push(ret_val);
+            }
+        }
+
+        Value *call(Function *f, s64 arg_count, bool on_object) {
             Array<Value *> args;
-            for (u16 i = 0; i < m->type->parameters.length; ++i) {
+            for (u16 i = 0; i < arg_count; ++i) {
                 args.add(pop());
             }
 
@@ -243,11 +323,7 @@ namespace jit {
                 sp--;
             }
 
-            Value *ret_val = irb->CreateCall(m->llvm_ref, ArrayRef(args.data, args.length));
-
-            if (m->type->return_type->type == NType::INT) {
-                push(ret_val);
-            }
+            return irb->CreateCall(f, ArrayRef(args.data, args.length));;
         }
 
         Function *convert_method(Method *m) {
@@ -333,6 +409,28 @@ namespace jit {
 
             assert(0 && "Type conversion not implemented");
             return 0;
+        }
+
+        void create_cond_jump(CmpInst::Predicate op, Value *l, Value * r, u16 off) {
+            BasicBlock *after = BasicBlock::Create(context, "", method->llvm_ref);
+
+            BasicBlock *target = get_or_create_block(off);
+
+            Value *cmp = irb->CreateICmp(op, l, r);
+            irb->CreateCondBr(cmp, after, target);
+
+            SetInsertBlock(after);
+        }
+
+        BasicBlock *get_or_create_block(u16 off) {
+            BasicBlock * bb = control_flow.find(off);
+
+            if (!bb) {
+                bb = BasicBlock::Create(context, "", method->llvm_ref);
+                control_flow.add(off, bb);
+            }
+
+            return bb;
         }
 
         void push(Value *val) {
