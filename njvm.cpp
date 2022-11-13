@@ -119,6 +119,12 @@ struct Backend {
         return (f << 8) | s;
     }
 
+    u16 fetch_offset() {
+        u16 base = base_offset();
+        s16 rel = (s16) fetch_u16();
+        return base + rel;
+    }
+
     u16 base_offset() {
         return ip - method->code.code - 1;
     }

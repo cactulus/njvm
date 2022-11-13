@@ -59,6 +59,7 @@ enum {
 	OP_ALOAD_1 = 0x2b,
 	OP_ALOAD_2 = 0x2c,
 	OP_ALOAD_3 = 0x2d,
+    OP_IALOAD = 0x2e,
 	OP_ASTORE = 0x3a,
 	OP_ASTORE_0 = 0x4b,
 	OP_ASTORE_1 = 0x4c,
@@ -69,6 +70,7 @@ enum {
 	OP_ISTORE_1 = 0x3c,
 	OP_ISTORE_2 = 0x3d,
 	OP_ISTORE_3 = 0x3e,
+    OP_IASTORE = 0x4f,
 	OP_POP = 0x57,
 	OP_DUP = 0x59,
 	OP_IADD = 0x60,
@@ -101,10 +103,23 @@ enum {
 	OP_INVOKEVIRTUAL = 0xb6,
 	OP_INVOKESPECIAL = 0xb7,
 	OP_INVOKESTATIC = 0xb8,
-	OP_NEW = 0xbb
+	OP_NEW = 0xbb,
+    OP_NEWARRAY = 0xbc,
+    OP_ARRAYLENGTH = 0xbe
 };
 
 enum {
     INST_LABEL = 9,
     INST_LABELW = 10,
+};
+
+enum {
+    TYPE_BOOLEAN = 4,
+    TYPE_CHAR = 5,
+    TYPE_FLOAT = 6,
+    TYPE_DOUBLE = 7,
+    TYPE_BYTE = 8,
+    TYPE_SHORT = 9,
+    TYPE_INT = 10,
+    TYPE_LONG = 11,
 };
