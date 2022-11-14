@@ -58,6 +58,25 @@ struct Reader {
 
 		return c;
 	}
+
+    u32 read_u64() {
+        assert(pos < length - 7);
+        u64 *p = (u64 *) &bytes[pos];
+        pos += 8;
+        u64 v = *p;
+        u64 c = 0;
+        c |= ((0xff & v) << 56);
+        c |= ((0xff << 8 & v) << 40);
+        c |= ((0xff << 16 & v) << 24);
+        u64 l = (0xff << 24 & v) >> 24;
+        c |= (0xff & l) << 32;
+        c |= (0xff << 8 & l) << 16;
+        c |= (0xff << 16 & l);
+        c |= (0xff << 24 & l) >> 16;
+        c |= ((u64) 0xff << 32 & l) >> 32;
+
+        return c;
+    }
 };
 
 struct ClassReader {
@@ -113,6 +132,12 @@ struct ClassReader {
 			case CONSTANT_String: {
 				info.string_index = r->read_u16();
 			} break;
+            case CONSTANT_Integer: {
+                info.long_int = r->read_u32();
+            } break;
+            case CONSTANT_Long: {
+                info.long_int = r->read_u64();
+            } break;
 			default: {
 				printf("Unhandled tag: %d\n", info.tag);
 			}
@@ -278,8 +303,12 @@ struct ClassReader {
 			}
 			switch (c) {
 				case 'V': return type_void;
-				case 'I': return type_int; 
-				default: {
+                case 'Z': return type_bool;
+				case 'B': return type_byte;
+                case 'S': return type_short;
+                case 'I': return type_int;
+                case 'J': return type_long;
+                default: {
 					printf("Unknown type '%c'\n", c);
 				};
 			}

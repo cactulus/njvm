@@ -36,7 +36,11 @@
 #include "interpreter.cpp"
 
 NType *type_void;
+NType *type_bool;
+NType *type_byte;
+NType *type_short;
 NType *type_int;
+NType *type_long;
 
 NType *make_primitive(NType::BaseType ty) {
     NType *type = new NType();
@@ -45,7 +49,11 @@ NType *make_primitive(NType::BaseType ty) {
 }
 
 int main() {
-	type_int = make_primitive(NType::INT);
+    type_bool = make_primitive(NType::BOOL);
+    type_byte = make_primitive(NType::BYTE);
+    type_short = make_primitive(NType::SHORT);
+    type_int = make_primitive(NType::INT);
+	type_long = make_primitive(NType::LONG);
 	type_void = make_primitive(NType::VOID);
 
     /* Temp for tests */
@@ -58,7 +66,7 @@ int main() {
     /*
     interp::Interpreter interp(clazz);
     interp.run();
-*/
+    */
 
     jit::Jit jit(clazz);
     jit.run();

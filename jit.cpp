@@ -1,9 +1,9 @@
 extern "C" {
-    void print_int(s32 a) {
+    void print_int(s64 a) {
         printf("%d\n", a);
     }
 
-    void *create_array(s32 size, s32 type_size) {
+    void *create_array(s64 size, s64 type_size) {
         return malloc(type_size * size);
     }
 }
@@ -51,8 +51,11 @@ namespace jit {
 
         ControlFlow control_flow;
 
+        Type *llty_i1;
         Type *llty_i8;
+        Type *llty_i16;
         Type *llty_i32;
+        Type *llty_i64;
         Type *llty_void;
         Type *llty_i8_ptr;
 
@@ -70,20 +73,27 @@ namespace jit {
             module = make_unique<Module>("njit", context);
             irb = new IRBuilder<>(context);
 
+            llty_i1 = Type::getInt1Ty(context);
             llty_i8 = Type::getInt8Ty(context);
+            llty_i16 = Type::getInt16Ty(context);
             llty_i32 = Type::getInt32Ty(context);
+            llty_i64 = Type::getInt64Ty(context);
             llty_void = Type::getVoidTy(context);
             llty_i8_ptr = llty_i8->getPointerTo();
 
             // TODO: move somewhere else later
-            auto print_int_fn_ty = FunctionType::get(llty_void, {llty_i32}, false);
+            auto print_int_fn_ty = FunctionType::get(llty_void, {llty_i64}, false);
             print_int_fn = Function::Create(print_int_fn_ty, Function::ExternalLinkage, "print_int", *module);
 
-            auto create_array_fn_ty = FunctionType::get(llty_i8_ptr, {llty_i32, llty_i32}, false);
+            auto create_array_fn_ty = FunctionType::get(llty_i8_ptr, {llty_i64, llty_i64}, false);
             create_array_fn = Function::Create(create_array_fn_ty, Function::ExternalLinkage, "create_array", *module);
         }
 
         void run() override {
+            for (u16 i = 0; i < clazz->fields_count; ++i) {
+                convert_field(&clazz->fields[i]);
+            }
+
             for (u16 i = 0; i < clazz->methods_count; ++i) {
                 convert_method(&clazz->methods[i]);
             }
@@ -102,10 +112,10 @@ namespace jit {
 
             ExecutionEngine *ee = eb.create();
 
-            void (*print_int_ptr)(s32) = print_int;
+            void (*print_int_ptr)(s64) = print_int;
             ee->addGlobalMapping(print_int_fn, (void *)print_int_ptr);
 
-            void *(*create_array_ptr)(s32, s32) = create_array;
+            void *(*create_array_ptr)(s64, s64) = create_array;
             ee->addGlobalMapping(create_array_fn, (void *) create_array);
 
             void (*main)() = (void (*)())(intptr_t) ee->getFunctionAddress("main");
@@ -138,10 +148,22 @@ namespace jit {
                     push_int(make_int(opcode - 3));
                 } break;
                 case OP_BIPUSH: {
-                    push_int(make_int(fetch_u8()));
+                    push_int(make_int((s8) fetch_u8()));
                 } break;
                 case OP_SIPUSH: {
-                    push_int(make_int(fetch_u16()));
+                    push_int(make_int((s16) fetch_u16()));
+                } break;
+                case OP_LDC: {
+                    u8 index = fetch_u8();
+                    CP_Info info = get_cp_info(index);
+                    switch (info.tag) {
+                        case CONSTANT_Integer:
+                        case CONSTANT_Long:
+                            push_int(make_int((s64) info.long_int));
+                            break;
+                        default:
+                            assert(0 && "No implementation for LDC for type used");
+                    }
                 } break;
                 case OP_ILOAD: {
                     load_int(fetch_u8());
@@ -155,7 +177,10 @@ namespace jit {
                 case OP_ALOAD_3: {
                     load_array(opcode - 0x2a);
                 } break;
-                case OP_IALOAD: {
+                case OP_IALOAD:
+                case OP_LALOAD:
+                case OP_BALOAD:
+                case OP_SALOAD: {
                     Value *index = pop_int();
                     JavaArray *arr = pop_array();
 
@@ -189,7 +214,10 @@ namespace jit {
                 case OP_ISTORE_3: {
                     store_int(opcode - 0x3b);
                 } break;
-                case OP_IASTORE: {
+                case OP_IASTORE:
+                case OP_LASTORE:
+                case OP_BASTORE:
+                case OP_SASTORE: {
                     Value *val = pop_int();
                     Value *index = pop_int();
                     JavaArray *arr = pop_array();
@@ -197,15 +225,23 @@ namespace jit {
                     Value *arr_ref = irb->CreateLoad(arr->llvm_ref);
                     arr_ref = irb->CreateBitOrPointerCast(arr_ref, java_to_llvm_type(arr->type)->getPointerTo());
                     Value *pos = irb->CreateGEP(arr_ref, index);
-                    irb->CreateStore(val, pos);
+                    llvm_store_int(val, pos);
                 } break;
                 case OP_POP: {
-                    pop_int();
+                    sp--;
                 } break;
                 case OP_DUP: {
-                    Value *val = pop_int();
-                    push_int(val);
-                    push_int(val);
+                    Value *val = stack_int[sp - 1];
+                    llvm_store_int(irb->CreateLoad(val), stack_int[sp]);
+
+                    JavaArray *arr = &stack_array[sp - 1];
+                    JavaArray *adup = &stack_array[sp];
+
+                    adup->length = arr->length;
+                    adup->type = arr->type;
+                    irb->CreateStore(irb->CreateLoad(arr->llvm_ref), adup->llvm_ref);
+
+                    sp++;
                 } break;
                 case OP_IADD:
                 case OP_ISUB:
@@ -365,7 +401,11 @@ namespace jit {
                     Value *size = pop_int();
                     Value *type_size = 0;
                     switch (type) {
+                        case TYPE_BOOLEAN: type_size = make_int(1); break;
+                        case TYPE_BYTE: type_size = make_int(1); break;
+                        case TYPE_SHORT: type_size = make_int(2); break;
                         case TYPE_INT: type_size = make_int(4); break;
+                        case TYPE_LONG: type_size = make_int(8); break;
                         default:
                             assert(0 && "Array type not implemented");
                             break;
@@ -406,7 +446,17 @@ namespace jit {
             return irb->CreateCall(f, ArrayRef(args.data, args.length));;
         }
 
-        Function *convert_method(Method *m) {
+        void convert_field(Field *f) {
+            Type *ty = convert_type(f->type);
+
+            String name = clazz->name + to_string(".") + f->name;
+            auto var_name = STR_REF(name);
+            module->getOrInsertGlobal(var_name, ty);
+            auto var = module->getGlobalVariable(var_name);
+            var->setInitializer(ConstantInt::get(ty, 0));
+        }
+
+        void convert_method(Method *m) {
             Function *fn = convert_function_header(m);
             m->llvm_ref = fn;
             Code ci = find_code(m);
@@ -438,6 +488,7 @@ namespace jit {
                     case OP_ILOAD:
                     case OP_ISTORE:
                     case OP_ALOAD:
+                    case OP_LDC:
                     case OP_ASTORE:
                     case OP_NEWARRAY: ip++; break;
                     case OP_IF_ICMPEQ: case OP_IF_ICMPNE: case OP_IF_ICMPLT: case OP_IF_ICMPGE:
@@ -461,8 +512,6 @@ namespace jit {
             while (ip < ci.code + ci.code_length) {
                 convert_opcode();
             }
-
-            return fn;
         }
 
         Function *convert_function_header(Method *m) {
@@ -500,7 +549,7 @@ namespace jit {
             sp = 0;
 
             for (u16 i = 0; i < ci.max_stack; ++i) {
-                AllocaInst *ia = irb->CreateAlloca(llty_i32, 0, "s_i_" + std::to_string(i));
+                AllocaInst *ia = irb->CreateAlloca(llty_i64, 0, "s_i_" + std::to_string(i));
                 stack_int[i] = ia;
 
                 AllocaInst *aa = irb->CreateAlloca(llty_i8_ptr, 0, "s_a_" + std::to_string(i));
@@ -508,7 +557,7 @@ namespace jit {
             }
 
             for (u16 i = 0; i < ci.max_locals; ++i) {
-                AllocaInst *ia = irb->CreateAlloca(llty_i32, 0, "l_i_" + std::to_string(i));
+                AllocaInst *ia = irb->CreateAlloca(llty_i64, 0, "l_i_" + std::to_string(i));
                 locals_int[i] = ia;
 
                 AllocaInst *aa = irb->CreateAlloca(llty_i8_ptr, 0, "l_a_" + std::to_string(i));
@@ -527,10 +576,12 @@ namespace jit {
                     assert(0 && "Class not implemented");
                     return 0;
                 }
-                case NType::INT:
-                    return llty_i32;
-                case NType::VOID:
-                    return llty_void;
+                case NType::BOOL: return llty_i1;
+                case NType::BYTE: return llty_i8;
+                case NType::SHORT: return llty_i16;
+                case NType::INT: return llty_i32;
+                case NType::LONG: return llty_i64;
+                case NType::VOID: return llty_void;
             }
 
             assert(0 && "Type conversion not implemented");
@@ -539,14 +590,14 @@ namespace jit {
 
         Type *java_to_llvm_type(u8 type) {
             switch (type) {
-                case TYPE_BOOLEAN: break;
+                case TYPE_BOOLEAN: llty_i1;
                 case TYPE_CHAR: return llty_i8;
                 case TYPE_FLOAT: break;
                 case TYPE_DOUBLE: break;
                 case TYPE_BYTE: return llty_i8;
-                case TYPE_SHORT: break;
+                case TYPE_SHORT: return llty_i16;
                 case TYPE_INT: return llty_i32;
-                case TYPE_LONG: break;
+                case TYPE_LONG: return llty_i64;
             }
 
             assert(0 && "Type not implemented");
@@ -576,7 +627,7 @@ namespace jit {
         }
 
         void push_int(Value *val) {
-            irb->CreateStore(val, stack_int[sp++]);
+            llvm_store_int(val, stack_int[sp++]);
         }
 
         Value *pop_int() {
@@ -584,7 +635,7 @@ namespace jit {
         }
 
         void store_int(u8 index, Value *value) {
-            irb->CreateStore(value, locals_int[index]);
+            llvm_store_int(value, locals_int[index]);
         }
 
         void store_int(u8 index) {
@@ -597,6 +648,13 @@ namespace jit {
 
         Value *load_local_int(u8 index) {
             return irb->CreateLoad(locals_int[index]);
+        }
+        
+        /* converts between different int types automatically */
+        void llvm_store_int(Value *val, Value *ptr) {
+            Type *ptr_el_ty = ptr->getType()->getPointerElementType();
+
+            irb->CreateStore(irb->CreateIntCast(val, ptr_el_ty, true), ptr);
         }
 
         void push_array(Value *ptr, u8 type, Value *length) {
@@ -643,8 +701,8 @@ namespace jit {
             pm->run(*module);
         }
 
-        Value *make_int(s32 v) {
-            return ConstantInt::get(llty_i32, v);
+        Value *make_int(s64 v) {
+            return ConstantInt::get(llty_i64, v);
         }
     };
 }

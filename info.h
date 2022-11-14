@@ -19,6 +19,7 @@ struct CP_Info {
 
 		/* Utf-8 */
 		String utf8;
+        u64 long_int;
 	};
 
 	CP_Info() {}
@@ -41,7 +42,11 @@ struct Code {
 struct NType {
 	enum BaseType {
 		VOID,
+        BOOL,
+        BYTE,
+        SHORT,
 		INT,
+        LONG,
 		FUNCTION,
 		ARRAY,
 		CLASS,
@@ -95,4 +100,8 @@ struct Class {
 
 /* TODO: cleanup. Don't really want them to stay globally for ever */
 extern NType *type_void;
+extern NType *type_bool;
+extern NType *type_byte;
+extern NType *type_short;
 extern NType *type_int;
+extern NType *type_long;
