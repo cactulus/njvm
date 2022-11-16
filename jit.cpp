@@ -38,6 +38,17 @@ namespace jit {
         u8 type = 0;
     };
 
+    struct JavaObject {
+        enum JavaObjectType {
+            ARRAY,
+            CLASS
+        };
+
+        JavaObjectType type;
+        JavaArray array;
+        String name;
+    };
+
     struct Jit : Backend {
         LLVMContext context;
         std::unique_ptr<Module> module;
@@ -45,9 +56,8 @@ namespace jit {
         Value **stack_int;
         Value **locals_int;
 
-        /* TODO: reconsider if we really need a stack for arrays */
-        JavaArray *stack_array;
-        JavaArray *locals_array;
+        JavaObject *stack_object;
+        JavaObject *locals_object;
 
         ControlFlow control_flow;
 
@@ -234,9 +244,14 @@ namespace jit {
                     Value *val = stack_int[sp - 1];
                     llvm_store_int(load(val), stack_int[sp]);
 
-                    JavaArray *arr = &stack_array[sp - 1];
-                    JavaArray *adup = &stack_array[sp];
+                    JavaObject *obj = &stack_object[sp - 1];
+                    JavaObject *odup = &stack_object[sp];
 
+                    JavaArray *arr = &obj->array;
+                    JavaArray *adup = &odup->array;
+
+                    odup->type = obj->type;
+                    odup->name = obj->name;
                     adup->length = arr->length;
                     adup->type = arr->type;
                     irb->CreateStore(load(arr->llvm_ref), adup->llvm_ref);
@@ -542,8 +557,8 @@ namespace jit {
             stack_int = (Value **) malloc(ci.max_stack * sizeof(Value *));
             locals_int = (Value **) malloc(ci.max_locals * sizeof(Value *));
 
-            stack_array = (JavaArray *) malloc(ci.max_stack * sizeof(JavaArray));
-            locals_array = (JavaArray *) malloc(ci.max_locals * sizeof(JavaArray));
+            stack_object = (JavaObject *) malloc(ci.max_stack * sizeof(JavaArray));
+            locals_object = (JavaObject *) malloc(ci.max_locals * sizeof(JavaArray));
 
             ip = ci.code;
             sp = 0;
@@ -553,7 +568,7 @@ namespace jit {
                 stack_int[i] = ia;
 
                 AllocaInst *aa = irb->CreateAlloca(llty_i8_ptr, 0, "s_a_" + std::to_string(i));
-                stack_array[i].llvm_ref = aa;
+                stack_object[i].array.llvm_ref = aa;
             }
 
             for (u16 i = 0; i < ci.max_locals; ++i) {
@@ -561,7 +576,7 @@ namespace jit {
                 locals_int[i] = ia;
 
                 AllocaInst *aa = irb->CreateAlloca(llty_i8_ptr, 0, "l_a_" + std::to_string(i));
-                locals_array[i].llvm_ref = aa;
+                locals_object[i].array.llvm_ref = aa;
             }
         }
 
@@ -658,8 +673,10 @@ namespace jit {
         }
 
         void push_array(Value *ptr, u8 type, Value *length) {
-            JavaArray *arr = &stack_array[sp++];
+            JavaObject *obj = &stack_object[sp++];
+            JavaArray *arr = &obj->array;
 
+            obj->type = JavaObject::ARRAY;
             arr->type = type;
             arr->length = length;
 
@@ -667,12 +684,14 @@ namespace jit {
         }
 
         JavaArray *pop_array() {
-            return &stack_array[--sp];
+            return &stack_object[--sp].array;
         }
 
-        void store_array(u8 index, Value *ptr, u8 type, Value * length) {
-            JavaArray *arr = &locals_array[index];
+        void store_array(u8 index, Value *ptr, u8 type, Value *length) {
+            JavaObject *obj = &locals_object[index];
+            JavaArray *arr = &obj->array;
 
+            obj->type = JavaObject::ARRAY;
             arr->type = type;
             arr->length = length;
 
@@ -685,7 +704,7 @@ namespace jit {
         }
 
         void load_array(u8 index) {
-            JavaArray *arr = &locals_array[index];
+            JavaArray *arr = &locals_object[index].array;
             push_array(load(arr->llvm_ref), arr->type, arr->length);
         }
 

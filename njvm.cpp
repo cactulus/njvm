@@ -5,7 +5,7 @@ void string_print(String str) {
 void string_println(String str) {
     printf("%.*s\n", str.length, str.data);
 }
-s
+
 struct Backend {
     u8 inst_types[220];
     Method *method;
