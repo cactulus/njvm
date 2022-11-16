@@ -1,6 +1,6 @@
 extern "C" {
     void print_int(s64 a) {
-        printf("%d\n", a);
+        printf("%lld\n", a);
     }
 
     void *create_array(s64 size, s64 type_size) {
@@ -70,7 +70,7 @@ namespace jit {
             InitializeAllAsmParsers();
             InitializeAllAsmPrinters();
 
-            module = make_unique<Module>("njit", context);
+            module = std::make_unique<Module>("njit", context);
             irb = new IRBuilder<>(context);
 
             llty_i1 = Type::getInt1Ty(context);
@@ -184,11 +184,11 @@ namespace jit {
                     Value *index = pop_int();
                     JavaArray *arr = pop_array();
 
-                    Value *arr_ref = irb->CreateLoad(arr->llvm_ref);
+                    Value *arr_ref = load(arr->llvm_ref);
                     arr_ref = irb->CreateBitOrPointerCast(arr_ref, java_to_llvm_type(arr->type)->getPointerTo());
-                    Value *pos = irb->CreateGEP(arr_ref, index);
+                    Value *pos = gep(arr_ref, index);
 
-                    push_int(irb->CreateLoad(pos));
+                    push_int(load(pos));
                 } break;
                 case OP_ASTORE: {
                     store_array(fetch_u8());
@@ -222,9 +222,9 @@ namespace jit {
                     Value *index = pop_int();
                     JavaArray *arr = pop_array();
 
-                    Value *arr_ref = irb->CreateLoad(arr->llvm_ref);
+                    Value *arr_ref = load(arr->llvm_ref);
                     arr_ref = irb->CreateBitOrPointerCast(arr_ref, java_to_llvm_type(arr->type)->getPointerTo());
-                    Value *pos = irb->CreateGEP(arr_ref, index);
+                    Value *pos = gep(arr_ref, index);
                     llvm_store_int(val, pos);
                 } break;
                 case OP_POP: {
@@ -232,14 +232,14 @@ namespace jit {
                 } break;
                 case OP_DUP: {
                     Value *val = stack_int[sp - 1];
-                    llvm_store_int(irb->CreateLoad(val), stack_int[sp]);
+                    llvm_store_int(load(val), stack_int[sp]);
 
                     JavaArray *arr = &stack_array[sp - 1];
                     JavaArray *adup = &stack_array[sp];
 
                     adup->length = arr->length;
                     adup->type = arr->type;
-                    irb->CreateStore(irb->CreateLoad(arr->llvm_ref), adup->llvm_ref);
+                    irb->CreateStore(load(arr->llvm_ref), adup->llvm_ref);
 
                     sp++;
                 } break;
@@ -590,7 +590,7 @@ namespace jit {
 
         Type *java_to_llvm_type(u8 type) {
             switch (type) {
-                case TYPE_BOOLEAN: llty_i1;
+                case TYPE_BOOLEAN: return llty_i1;
                 case TYPE_CHAR: return llty_i8;
                 case TYPE_FLOAT: break;
                 case TYPE_DOUBLE: break;
@@ -631,7 +631,7 @@ namespace jit {
         }
 
         Value *pop_int() {
-            return irb->CreateLoad(stack_int[--sp]);
+            return load(stack_int[--sp]);
         }
 
         void store_int(u8 index, Value *value) {
@@ -647,7 +647,7 @@ namespace jit {
         }
 
         Value *load_local_int(u8 index) {
-            return irb->CreateLoad(locals_int[index]);
+            return load(locals_int[index]);
         }
         
         /* converts between different int types automatically */
@@ -681,12 +681,12 @@ namespace jit {
 
         void store_array(u8 index) {
             JavaArray *arr = pop_array();
-            store_array(index, irb->CreateLoad(arr->llvm_ref), arr->type, arr->length);
+            store_array(index, load(arr->llvm_ref), arr->type, arr->length);
         }
 
         void load_array(u8 index) {
             JavaArray *arr = &locals_array[index];
-            push_array(irb->CreateLoad(arr->llvm_ref), arr->type, arr->length);
+            push_array(load(arr->llvm_ref), arr->type, arr->length);
         }
 
         void optimize() {
@@ -703,6 +703,17 @@ namespace jit {
 
         Value *make_int(s64 v) {
             return ConstantInt::get(llty_i64, v);
+        }
+
+        Value *gep(llvm::Value *ptr, ArrayRef<Value *> idx_list) {
+            Value *inst = irb->CreateInBoundsGEP(ptr->getType()->getPointerElementType(), ptr, idx_list);
+            return inst;
+        }
+
+        Value *load(Value *value) {
+            Type *ty = value->getType()->getPointerElementType();
+            LoadInst *load = irb->CreateLoad(ty, value);
+            return load;
         }
     };
 }
