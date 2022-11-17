@@ -24,8 +24,8 @@
 #include <llvm/Target/TargetMachine.h>
 #include <llvm/Transforms/IPO/PassManagerBuilder.h>
 
-#if LLVM_VERSION_MAJOR==8
-#include <llmv/Support/TargetRegistry.h>
+#ifdef _WIN32
+#include <llvm/Support/TargetRegistry.h>
 #else
 #include <llvm/MC/TargetRegistry.h>
 #endif
@@ -67,11 +67,6 @@ int main() {
 
 	ClassReader cr(class_file);
 	Class *clazz = cr.read();
-
-    /*
-    interp::Interpreter interp(clazz);
-    interp.run();
-    */
 
     jit::Jit jit(clazz);
     jit.run();

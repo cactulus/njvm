@@ -118,6 +118,7 @@ namespace jit {
                 return;
             }
 
+            /*
             EngineBuilder eb = EngineBuilder(std::move(module));
 
             ExecutionEngine *ee = eb.create();
@@ -129,7 +130,7 @@ namespace jit {
             ee->addGlobalMapping(create_array_fn, (void *) create_array);
 
             void (*main)() = (void (*)())(intptr_t) ee->getFunctionAddress("main");
-            main();
+            main();*/
         }
 
         void SetInsertBlock(BasicBlock *bb) {
