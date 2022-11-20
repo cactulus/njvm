@@ -84,6 +84,9 @@ struct Field {
     NType *type;
 	u16 attributes_count;
 	Attribute *attributes;
+
+    /* remove later? */
+    llvm::GlobalVariable *llvm_ref;
 };
 
 struct Class {

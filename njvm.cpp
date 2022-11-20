@@ -28,6 +28,21 @@ struct Backend {
 
     virtual void run() = 0;
 
+    Field *find_field(String class_name, String name) {
+        if (class_name != clazz->name) {
+            return 0;
+        }
+
+        for (u16 i = 0; i < clazz->fields_count; ++i) {
+            Field *f = &clazz->fields[i];
+            if (f->name == name) {
+                return f;
+            }
+        }
+
+        return 0;
+    }
+
     Method *find_method(String class_name, String name) {
         if (class_name != clazz->name) {
             return 0;

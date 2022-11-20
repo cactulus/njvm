@@ -73,6 +73,8 @@ namespace jit {
         Function *print_int_fn = 0;
         Function *create_array_fn = 0;
 
+        Array<Function *> static_init_functions;
+
         Jit(Class *main_clazz) : Backend(main_clazz) {
             InitializeAllTargetInfos();
             InitializeAllTargets();
@@ -97,9 +99,12 @@ namespace jit {
 
             auto create_array_fn_ty = FunctionType::get(llty_i8_ptr, {llty_i64, llty_i64}, false);
             create_array_fn = Function::Create(create_array_fn_ty, Function::ExternalLinkage, "create_array", *module);
+
+            convert_class(main_clazz);
         }
 
-        void run() override {
+        void convert_class(Class *clazz) {
+            this->clazz = clazz;
             for (u16 i = 0; i < clazz->fields_count; ++i) {
                 convert_field(&clazz->fields[i]);
             }
@@ -107,6 +112,31 @@ namespace jit {
             for (u16 i = 0; i < clazz->methods_count; ++i) {
                 convert_method(&clazz->methods[i]);
             }
+
+            Method *static_init = find_method(clazz->name, to_string("<clinit>"));
+            if (static_init) {
+                static_init_functions.add(static_init->llvm_ref);
+            }
+        }
+
+        void run() override {
+            /* Create main function and call static init functions */
+            auto main_ty = FunctionType::get(llty_i32, {}, false);
+            auto main_fn = Function::Create(main_ty, Function::ExternalLinkage, "main", *module);
+            BasicBlock *main_entry = BasicBlock::Create(context, "", main_fn);
+            irb->SetInsertPoint(main_entry);
+
+            for (auto static_init_fn : static_init_functions) {
+                irb->CreateCall(static_init_fn);
+            }
+
+            /* change later to search all classes */
+            Method *main_method = find_method("main");
+            if (main_method) {
+                irb->CreateCall(main_method->llvm_ref);
+            }
+
+            irb->CreateRet(ConstantInt::get(llty_i32, 0));
 
             finalize();
         }
@@ -118,7 +148,6 @@ namespace jit {
                 return;
             }
 
-            /*
             EngineBuilder eb = EngineBuilder(std::move(module));
 
             ExecutionEngine *ee = eb.create();
@@ -129,8 +158,8 @@ namespace jit {
             void *(*create_array_ptr)(s64, s64) = create_array;
             ee->addGlobalMapping(create_array_fn, (void *) create_array);
 
-            void (*main)() = (void (*)())(intptr_t) ee->getFunctionAddress("main");
-            main();*/
+            s32 (*main)() = (s32 (*)())(intptr_t) ee->getFunctionAddress("main");
+            main();
         }
 
         void SetInsertBlock(BasicBlock *bb) {
@@ -180,13 +209,13 @@ namespace jit {
                     load_int(fetch_u8());
                 } break;
                 case OP_ALOAD: {
-                    load_array(fetch_u8());
+                    load_object(fetch_u8());
                 } break;
                 case OP_ALOAD_0:
                 case OP_ALOAD_1:
                 case OP_ALOAD_2:
                 case OP_ALOAD_3: {
-                    load_array(opcode - 0x2a);
+                    load_object(opcode - 0x2a);
                 } break;
                 case OP_IALOAD:
                 case OP_LALOAD:
@@ -202,13 +231,13 @@ namespace jit {
                     push_int(load(pos));
                 } break;
                 case OP_ASTORE: {
-                    store_array(fetch_u8());
+                    store_object(fetch_u8());
                 } break;
                 case OP_ASTORE_0:
                 case OP_ASTORE_1:
                 case OP_ASTORE_2:
                 case OP_ASTORE_3: {
-                    store_array(opcode - 0x4b);
+                    store_object(opcode - 0x4b);
                 } break;
                 case OP_ILOAD_0:
                 case OP_ILOAD_1:
@@ -363,8 +392,26 @@ namespace jit {
                     CP_Info class_name = get_class_name(field_ref.class_index);
                     CP_Info member_name = get_member_name(field_ref.name_and_type_index);
 
-                    /* TODO:  */
-                    sp++;
+                    Field *field = find_field(class_name.utf8, member_name.utf8);
+                    if (field) {
+                        push_int(load(field->llvm_ref));
+                    } else {
+                        /* TODO:  */
+                        sp++;
+                    }
+                } break;
+                case OP_PUTSTATIC: {
+                    u16 field_index = fetch_u16();
+
+                    CP_Info field_ref = get_cp_info(field_index);
+                    CP_Info class_name = get_class_name(field_ref.class_index);
+                    CP_Info member_name = get_member_name(field_ref.name_and_type_index);
+
+                    Field *field = find_field(class_name.utf8, member_name.utf8);
+                    if (field) {
+                        Value *val = pop_int();
+                        llvm_store_int(val, field->llvm_ref);
+                    }
                 } break;
                 case OP_INVOKEVIRTUAL: {
                     u16 method_index = fetch_u16();
@@ -410,7 +457,7 @@ namespace jit {
                     CP_Info constant_clazz = get_cp_info(index);
                     CP_Info class_name = get_cp_info(constant_clazz.name_index);
 
-                    // push(make_object(class_name.utf8));
+                    push_class(class_name.utf8);
                 } break;
                 case OP_NEWARRAY: {
                     u8 type = fetch_u8();
@@ -470,6 +517,8 @@ namespace jit {
             module->getOrInsertGlobal(var_name, ty);
             auto var = module->getGlobalVariable(var_name);
             var->setInitializer(ConstantInt::get(ty, 0));
+
+            f->llvm_ref = var;
         }
 
         void convert_method(Method *m) {
@@ -540,10 +589,7 @@ namespace jit {
                 }
             }
 
-            String fn_name = m->name;
-            if (fn_name != "main") {
-                fn_name = clazz->name + to_string(".") + fn_name;
-            }
+            String fn_name = clazz->name + to_string(".") + m->name;
 
             auto fty = FunctionType::get(ret_type, ArrayRef(params.data, params.length), false);
             auto fn = Function::Create(fty, Function::ExternalLinkage, STR_REF(fn_name), *module);
@@ -706,7 +752,47 @@ namespace jit {
 
         void load_array(u8 index) {
             JavaArray *arr = &locals_object[index].array;
+
             push_array(load(arr->llvm_ref), arr->type, arr->length);
+        }
+
+        void load_object(u8 index) {
+            JavaObject *o = &locals_object[index];
+            if (o->type == JavaObject::ARRAY) {
+                load_array(index);
+            } else if (o->type == JavaObject::CLASS) {
+                load_class(index);
+            }
+        }
+
+        void store_object(u8 index) {
+            JavaObject *o = &locals_object[index];
+            if (o->type == JavaObject::ARRAY) {
+                store_array(index);
+            } else if (o->type == JavaObject::CLASS) {
+                store_class(index);
+            }
+        }
+
+        JavaObject *pop_object() {
+            return &stack_object[--sp];
+        }
+
+        void push_class(String name) {
+            JavaObject *obj = &stack_object[sp++];
+            obj->type = JavaObject::CLASS;
+            obj->name = name;
+        }
+
+        void store_class(u8 index) {
+            JavaObject *o = pop_object();
+            locals_object[index].name = o->name;
+            locals_object[index].type = JavaObject::CLASS;
+        }
+
+        void load_class(u8 index) {
+            JavaObject *obj = &locals_object[index];
+            push_class(obj->name);
         }
 
         void optimize() {
