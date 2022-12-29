@@ -30,6 +30,7 @@
 #include <llvm/MC/TargetRegistry.h>
 #endif
 
+#include "testing/testing.h"
 #include "common.h"
 
 #include "constants.h"
@@ -48,28 +49,32 @@ NType *type_int;
 NType *type_long;
 
 NType *make_primitive(NType::BaseType ty) {
-    NType *type = new NType();
+  NType *type = new NType();
 	type->type = ty;
 	return type;
 }
 
-int main() {
-    type_bool = make_primitive(NType::BOOL);
-    type_byte = make_primitive(NType::BYTE);
-    type_short = make_primitive(NType::SHORT);
-    type_int = make_primitive(NType::INT);
-	type_long = make_primitive(NType::LONG);
-	type_void = make_primitive(NType::VOID);
+int main(int argc, char *argv[]) {
+    if (argc < 2) {
+        printf("usage: njvm <CLASS-FILE>");
+        return EXIT_FAILURE;
+    }
 
-    /* Temp for tests */
-    system("javac HelloWorld.java -g:none");
-    const char *class_file = "HelloWorld.class";
+    const char *class_file = argv[1];
+
+  type_bool = make_primitive(NType::BOOL);
+  type_byte = make_primitive(NType::BYTE);
+  type_short = make_primitive(NType::SHORT);
+  type_int = make_primitive(NType::INT);
+    type_long = make_primitive(NType::LONG);
+    type_void = make_primitive(NType::VOID);
+
 
 	ClassReader cr(class_file);
 	Class *clazz = cr.read();
 
-    jit::Jit jit(clazz);
-    jit.run();
+  jit::Jit jit(clazz);
+  jit.run();
 
 	return 0;
 }

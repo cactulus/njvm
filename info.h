@@ -2,24 +2,24 @@ struct CP_Info {
 	u8 tag;
 
 	union {
-		/* String */
-		u16 string_index;
+    /* String */
+    u16 string_index;
 
-		/* Class & NameAndType */
-		struct {
-			u16 name_index;
-			u16 descriptor_index;
-		};
+    /* Class & NameAndType */
+    struct {
+      u16 name_index;
+      u16 descriptor_index;
+    };
 
-		/* Methodref, Fieldref, InterfaceMethodref */
-		struct {
-			u16 class_index;
-			u16 name_and_type_index;
-		};
+    /* Methodref, Fieldref, InterfaceMethodref */
+    struct {
+      u16 class_index;
+      u16 name_and_type_index;
+    };
 
-		/* Utf-8 */
-		String utf8;
-        u64 long_int;
+    /* Utf-8 */
+    String utf8;
+    u64 long_int;
 	};
 
 	CP_Info() {}
@@ -42,11 +42,11 @@ struct Code {
 struct NType {
 	enum BaseType {
 		VOID,
-        BOOL,
-        BYTE,
-        SHORT,
+    BOOL,
+    BYTE,
+    SHORT,
 		INT,
-        LONG,
+    LONG,
 		FUNCTION,
 		ARRAY,
 		CLASS,
@@ -54,39 +54,39 @@ struct NType {
 
 	BaseType type;
 	
-	String clazz_name;
-    NType *element_type;
+  String clazz_name;
+  NType *element_type;
 
 	Array<NType *> parameters;
-    NType *return_type;
+  NType *return_type;
 
-    NType() {}
+  NType() {}
 };
 
 struct Class;
 struct Method {
-    Class *clazz;
+  Class *clazz;
 	u16 access_flags;
 	String name;
-    NType *type;
+  NType *type;
 	u16 attributes_count;
 	Attribute *attributes;
 
-    Code code = {0};
+  Code code = {0};
 
-    /* remove later? */
-    llvm::Function *llvm_ref;
+  /* remove later? */
+  llvm::Function *llvm_ref;
 };
 
 struct Field {
 	u16 access_flags;
 	String name;
-    NType *type;
+  NType *type;
 	u16 attributes_count;
 	Attribute *attributes;
 
-    /* remove later? */
-    llvm::GlobalVariable *llvm_ref;
+  /* remove later? */
+  llvm::GlobalVariable *llvm_ref;
 };
 
 struct Class {

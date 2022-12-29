@@ -1,319 +1,332 @@
 struct Reader {
-	u8 *bytes;
-	u32 length;
-	u32 pos;
+  u8 *bytes;
+  u32 length;
+  u32 pos;
 
-	Reader(u8 *bytes, u32 length) {
-		this->bytes = bytes;
-		this->length = length;
-		this->pos = 0;
-	}
+  Reader(u8 *bytes, u32 length) {
+    this->bytes = bytes;
+    this->length = length;
+    this->pos = 0;
+  }
 
-	Reader(const char *file_name) {
-		FILE *f = fopen(file_name, "rb");
-        if (!f) {
-            printf("Failed to open file '%s'\n", file_name);
-            exit(1);
-        }
-
-		fseek(f, 0, SEEK_END);
-		length = ftell(f);
-		fseek(f, 0, SEEK_SET);
-
-		bytes = (u8 *) malloc(length);
-		fread(bytes, sizeof(u8), length, f);
-
-		fclose(f);
-
-		pos = 0;
-	}
-
-	u8 read_u8() {
-		assert(pos < length);
-		return bytes[pos++];
-	}
-
-	u16 read_u16() {
-		assert(pos < length - 1);
-
-		u16 *p = (u16 *) &bytes[pos];
-		pos += 2;
-		u16 v = *p;
-		u16 c = 0;
-		c |= ((0xff & v) << 8);
-		c |= (((0xff << 8) & v) >> 8);
-		return c;
-	}
-
-	u32 read_u32() {
-		assert(pos < length - 3);
-		u32 *p = (u32 *) &bytes[pos];
-		pos += 4;
-		u32 v = *p;
-		u32 c = 0;
-		c |= ((0xff & v) << 24);
-		c |= (((0xff << 8) & v) <<8);
-		c |= (((0xff << 16) & v) >> 8);
-		c |= (((0xff << 24) & v) >> 24);
-
-		return c;
-	}
-
-    u32 read_u64() {
-        assert(pos < length - 7);
-        u64 *p = (u64 *) &bytes[pos];
-        pos += 8;
-        u64 v = *p;
-        u64 c = 0;
-        c |= ((0xff & v) << 56);
-        c |= ((0xff << 8 & v) << 40);
-        c |= ((0xff << 16 & v) << 24);
-        u64 l = (0xff << 24 & v) >> 24;
-        c |= (0xff & l) << 32;
-        c |= (0xff << 8 & l) << 16;
-        c |= (0xff << 16 & l);
-        c |= (0xff << 24 & l) >> 16;
-        c |= ((u64) 0xff << 32 & l) >> 32;
-
-        return c;
+  Reader(const char *file_name) {
+    FILE *f = fopen(file_name, "rb");
+    if (!f) {
+      printf("Failed to open file '%s'\n", file_name);
+      exit(1);
     }
+
+    fseek(f, 0, SEEK_END);
+    length = ftell(f);
+    fseek(f, 0, SEEK_SET);
+
+    bytes = (u8 *) malloc(length);
+    fread(bytes, sizeof(u8), length, f);
+
+    fclose(f);
+
+    pos = 0;
+  }
+
+  u8 read_u8() {
+    assert(pos < length);
+    return bytes[pos++];
+  }
+
+  u16 read_u16() {
+    assert(pos < length - 1);
+
+    u16 *p = (u16 *) &bytes[pos];
+    pos += 2;
+    u16 v = *p;
+    u16 c = 0;
+    c |= ((0xff & v) << 8);
+    c |= (((0xff << 8) & v) >> 8);
+    return c;
+  }
+
+  u32 read_u32() {
+    assert(pos < length - 3);
+    u32 *p = (u32 *) &bytes[pos];
+    pos += 4;
+    u32 v = *p;
+    u32 c = 0;
+    c |= ((0xff & v) << 24);
+    c |= (((0xff << 8) & v) << 8);
+    c |= (((0xff << 16) & v) >> 8);
+    c |= (((0xff << 24) & v) >> 24);
+
+    return c;
+  }
+
+  u32 read_u64() {
+    assert(pos < length - 7);
+    u64 *p = (u64 *) &bytes[pos];
+    pos += 8;
+    u64 v = *p;
+    u64 c = 0;
+    c |= ((0xff & v) << 56);
+    c |= ((0xff << 8 & v) << 40);
+    c |= ((0xff << 16 & v) << 24);
+    u64 l = (0xff << 24 & v) >> 24;
+    c |= (0xff & l) << 32;
+    c |= (0xff << 8 & l) << 16;
+    c |= (0xff << 16 & l);
+    c |= (0xff << 24 & l) >> 16;
+    c |= ((u64) 0xff << 32 & l) >> 32;
+
+    return c;
+  }
 };
 
 struct ClassReader {
-	CP_Info *cp;
-	Reader *r;
+  CP_Info *cp;
+  Reader *r;
 
-	ClassReader(const char *file_name) {
-		r = new Reader(file_name);
-	}
+  ClassReader(const char *file_name) {
+    r = new Reader(file_name);
+  }
 
-	String read_name() {
-		u16 index = r->read_u16();
-		CP_Info cpi = cp[index - 1];
-		return cpi.utf8;
-	}
+  String read_name() {
+    u16 index = r->read_u16();
+    CP_Info cpi = cp[index - 1];
+    return cpi.utf8;
+  }
 
-	String read_class_name() {
-		u16 index = r->read_u16();
-		CP_Info cpi = cp[index - 1];
-		CP_Info ccpi = cp[cpi.name_index - 1];
-		return ccpi.utf8;
-	}
+  String read_class_name() {
+    u16 index = r->read_u16();
+    CP_Info cpi = cp[index - 1];
+    CP_Info ccpi = cp[cpi.name_index - 1];
+    return ccpi.utf8;
+  }
 
-	CP_Info read_cp_info() {
-		CP_Info info;
+  CP_Info read_cp_info() {
+    CP_Info info;
 
-		info.tag = r->read_u8();
-		
-		switch (info.tag) {
-			case CONSTANT_Methodref:
-			case CONSTANT_Fieldref:
-			case CONSTANT_InterfaceMethodref: {
-				info.class_index = r->read_u16();
-				info.name_and_type_index = r->read_u16();
-			} break;
-			case CONSTANT_Class: {
-				info.name_index = r->read_u16();
-			} break;
-			case CONSTANT_NameAndType: {
-				info.name_index = r->read_u16();
-				info.descriptor_index = r->read_u16();
-			} break;
-			case CONSTANT_Utf8: {
-				String utf8;
+    info.tag = r->read_u8();
 
-				utf8.length = r->read_u16();
-				utf8.data = (u8 *) malloc(utf8.length);
-				for (u16 i = 0; i < utf8.length; ++i) {
-					utf8.data[i] = r->read_u8();
-				}
-				info.utf8 = utf8;
-			} break;
-			case CONSTANT_String: {
-				info.string_index = r->read_u16();
-			} break;
-            case CONSTANT_Integer: {
-                info.long_int = r->read_u32();
-            } break;
-            case CONSTANT_Long: {
-                info.long_int = r->read_u64();
-            } break;
-			default: {
-				printf("Unhandled tag: %d\n", info.tag);
-			}
-		}
+    switch (info.tag) {
+      case CONSTANT_Methodref:
+      case CONSTANT_Fieldref:
+      case CONSTANT_InterfaceMethodref: {
+        info.class_index = r->read_u16();
+        info.name_and_type_index = r->read_u16();
+      }
+        break;
+      case CONSTANT_Class: {
+        info.name_index = r->read_u16();
+      }
+        break;
+      case CONSTANT_NameAndType: {
+        info.name_index = r->read_u16();
+        info.descriptor_index = r->read_u16();
+      }
+        break;
+      case CONSTANT_Utf8: {
+        String utf8;
 
-		return info;
-	}
+        utf8.length = r->read_u16();
+        utf8.data = (u8 *) malloc(utf8.length);
+        for (u16 i = 0; i < utf8.length; ++i) {
+          utf8.data[i] = r->read_u8();
+        }
+        info.utf8 = utf8;
+      }
+        break;
+      case CONSTANT_String: {
+        info.string_index = r->read_u16();
+      }
+        break;
+      case CONSTANT_Integer: {
+        info.long_int = r->read_u32();
+      }
+        break;
+      case CONSTANT_Long: {
+        info.long_int = r->read_u64();
+      }
+        break;
+      default: {
+        printf("Unhandled tag: %d\n", info.tag);
+      }
+    }
 
-	Attribute read_attribute() {
-		Attribute info;
+    return info;
+  }
 
-		info.name = read_name();
-		info.attribute_length = r->read_u32();
+  Attribute read_attribute() {
+    Attribute info;
 
-		info.info = (u8 *) malloc(info.attribute_length);
-		for (u16 i = 0; i < info.attribute_length; ++i) {
-			info.info[i] = r->read_u8();
-		}
+    info.name = read_name();
+    info.attribute_length = r->read_u32();
 
-		return info;
-	}
+    info.info = (u8 *) malloc(info.attribute_length);
+    for (u16 i = 0; i < info.attribute_length; ++i) {
+      info.info[i] = r->read_u8();
+    }
 
-	Field read_field() {
-		Field info;
+    return info;
+  }
 
-		info.access_flags = r->read_u16();
-		info.name = read_name();
-		info.type = read_type();
-		info.attributes_count = r->read_u16();
+  Field read_field() {
+    Field info;
 
-		info.attributes = (Attribute *) malloc(info.attributes_count * sizeof(Attribute));
-		for (u16 i = 0; i < info.attributes_count; ++i) {
-			info.attributes[i] = read_attribute();
-		}
+    info.access_flags = r->read_u16();
+    info.name = read_name();
+    info.type = read_type();
+    info.attributes_count = r->read_u16();
 
-		return info;
-	}
+    info.attributes = (Attribute *) malloc(info.attributes_count * sizeof(Attribute));
+    for (u16 i = 0; i < info.attributes_count; ++i) {
+      info.attributes[i] = read_attribute();
+    }
 
-	Method read_method() {
-		Method info;
+    return info;
+  }
 
-		info.access_flags = r->read_u16();
-		info.name = read_name();
-		info.type = read_type();
-		
-		info.attributes_count = r->read_u16();
-		info.attributes = (Attribute *) malloc(info.attributes_count * sizeof(Attribute));
-		for (u16 i = 0; i < info.attributes_count; ++i) {
-			info.attributes[i] = read_attribute();
-		}
+  Method read_method() {
+    Method info;
 
-		return info;
-	}
+    info.access_flags = r->read_u16();
+    info.name = read_name();
+    info.type = read_type();
 
-	Class *read() {
-		u32 magic = r->read_u32();
-		if (magic != 0xcafebabe) {
-			printf("Magic number incorrect\n");
-			exit(1);
-		}
+    info.attributes_count = r->read_u16();
+    info.attributes = (Attribute *) malloc(info.attributes_count * sizeof(Attribute));
+    for (u16 i = 0; i < info.attributes_count; ++i) {
+      info.attributes[i] = read_attribute();
+    }
 
-		Class *clazz = new Class();
+    return info;
+  }
 
-		u16 minor_version = r->read_u16();
-		u16 major_version = r->read_u16();
-		
-		clazz->constant_pool_count = r->read_u16();
-		clazz->constant_pool = (CP_Info *) malloc(sizeof(CP_Info) * (clazz->constant_pool_count-1));
-		for (u16 i = 0; i < clazz->constant_pool_count - 1; ++i) {
-			clazz->constant_pool[i] = read_cp_info();	
-		}
-		cp = clazz->constant_pool;
+  Class *read() {
+    u32 magic = r->read_u32();
+    if (magic != 0xcafebabe) {
+      printf("Magic number incorrect\n");
+      exit(1);
+    }
 
-		clazz->access_flags = r->read_u16();
-		clazz->name = read_class_name();
-		clazz->super_name = read_class_name();
+    Class *clazz = new Class();
 
-		u16 interfaces_count = r->read_u16();
-		for (u16 i = 0; i < interfaces_count; ++i) {
-			r->pos += 2;
-		}
+    u16 minor_version = r->read_u16();
+    u16 major_version = r->read_u16();
 
-		clazz->fields_count = r->read_u16();
-		clazz->fields = (Field *) malloc(sizeof(Field) * clazz->fields_count);
-		for (u16 i = 0; i < clazz->fields_count; ++i) {
-			clazz->fields[i] = read_field();
-		}
+    clazz->constant_pool_count = r->read_u16();
+    clazz->constant_pool = (CP_Info *) malloc(sizeof(CP_Info) * (clazz->constant_pool_count - 1));
+    for (u16 i = 0; i < clazz->constant_pool_count - 1; ++i) {
+      clazz->constant_pool[i] = read_cp_info();
+    }
+    cp = clazz->constant_pool;
 
-		clazz->methods_count = r->read_u16();
-		clazz->methods = (Method *) malloc(sizeof(Method) * clazz->methods_count);
-		for (u16 i = 0; i < clazz->methods_count; ++i) {
-			clazz->methods[i] = read_method();
-            clazz->methods[i].clazz = clazz;
-		}
+    clazz->access_flags = r->read_u16();
+    clazz->name = read_class_name();
+    clazz->super_name = read_class_name();
 
-		u16 attributes_count = r->read_u16();
-		for (u16 i = 0; i < attributes_count; ++i) {
-			read_attribute();
-		}
+    u16 interfaces_count = r->read_u16();
+    for (u16 i = 0; i < interfaces_count; ++i) {
+      r->pos += 2;
+    }
 
-		return clazz;
-	}
+    clazz->fields_count = r->read_u16();
+    clazz->fields = (Field *) malloc(sizeof(Field) * clazz->fields_count);
+    for (u16 i = 0; i < clazz->fields_count; ++i) {
+      clazz->fields[i] = read_field();
+    }
 
-	~ClassReader() {
-		delete r;
-	}
+    clazz->methods_count = r->read_u16();
+    clazz->methods = (Method *) malloc(sizeof(Method) * clazz->methods_count);
+    for (u16 i = 0; i < clazz->methods_count; ++i) {
+      clazz->methods[i] = read_method();
+      clazz->methods[i].clazz = clazz;
+    }
 
-	NType *read_type() {
-		String str = read_name();
-		return parse_type(str);
-	}
+    u16 attributes_count = r->read_u16();
+    for (u16 i = 0; i < attributes_count; ++i) {
+      read_attribute();
+    }
 
-    NType *parse_type(String str) {
-		u8 first = str.data[0];
+    return clazz;
+  }
 
-		if (first == '(') {
-            NType *ty = new NType();
-			ty->type = NType::FUNCTION;
-			
-			u16 i = 1;
-			while (str.data[i] != ')') {
-				ty->parameters.add(parse_type(str, &i));
-			}
-			i++;
-			ty->return_type = parse_type(str, &i);
+  ~ClassReader() {
+    delete r;
+  }
 
-			return ty;
-		} else {
-			return parse_type(str, 0);
-		}
-	}
+  NType *read_type() {
+    String str = read_name();
+    return parse_type(str);
+  }
 
-    NType *parse_type(String str, u16 *i) {
-		u16 start = i ? *i : 0;
-		u8 c = str.data[start];
+  NType *parse_type(String str) {
+    u8 first = str.data[0];
 
-		if (c == 'L') {
-			u16 len = 0;
-			u16 p = start + 1;
-			String s;
+    if (first == '(') {
+      NType *ty = new NType();
+      ty->type = NType::FUNCTION;
 
-			c = str.data[p];
-			while (c != ';') {
-				c = str.data[++p];
-				len++;
-			}
+      u16 i = 1;
+      while (str.data[i] != ')') {
+        ty->parameters.add(parse_type(str, &i));
+      }
+      i++;
+      ty->return_type = parse_type(str, &i);
 
-			(*i) += len + 2; /* 2 -> L and ;*/
+      return ty;
+    } else {
+      return parse_type(str, 0);
+    }
+  }
 
-            NType *ty = new NType();
-            ty->type = NType::CLASS;
-			ty->clazz_name = str.substring(start + 1, len);
-			return ty;
-		} else if (c == '[') {
-			(*i)++;
-            NType *ty = new NType();
-			ty->type = NType::ARRAY;
-			ty->element_type = parse_type(str, i);
-			return ty;
-		} else {
-			if (i) {
-				(*i)++;
-			}
-			switch (c) {
-				case 'V': return type_void;
-                case 'Z': return type_bool;
-				case 'B': return type_byte;
-                case 'S': return type_short;
-                case 'I': return type_int;
-                case 'J': return type_long;
-                default: {
-					printf("Unknown type '%c'\n", c);
-				};
-			}
-		}
-		
-		return type_void;
-	}
+  NType *parse_type(String str, u16 *i) {
+    u16 start = i ? *i : 0;
+    u8 c = str.data[start];
+
+    if (c == 'L') {
+      u16 len = 0;
+      u16 p = start + 1;
+      String s;
+
+      c = str.data[p];
+      while (c != ';') {
+        c = str.data[++p];
+        len++;
+      }
+
+      (*i) += len + 2; /* 2 -> L and ;*/
+
+      NType *ty = new NType();
+      ty->type = NType::CLASS;
+      ty->clazz_name = str.substring(start + 1, len);
+      return ty;
+    } else if (c == '[') {
+      (*i)++;
+      NType *ty = new NType();
+      ty->type = NType::ARRAY;
+      ty->element_type = parse_type(str, i);
+      return ty;
+    } else {
+      if (i) {
+        (*i)++;
+      }
+      switch (c) {
+        case 'V':
+          return type_void;
+        case 'Z':
+          return type_bool;
+        case 'B':
+          return type_byte;
+        case 'S':
+          return type_short;
+        case 'I':
+          return type_int;
+        case 'J':
+          return type_long;
+        default: {
+          printf("Unknown type '%c'\n", c);
+        };
+      }
+    }
+
+    return type_void;
+  }
 };
